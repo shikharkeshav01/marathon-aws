@@ -173,11 +173,11 @@ if docker buildx version >/dev/null 2>&1; then
   # Create builder if it doesn't exist
   docker buildx create --name lambda-builder --use >/dev/null 2>&1 || docker buildx use lambda-builder >/dev/null 2>&1 || true
   # Build and push with flags to prevent manifest list creation
-  docker buildx build --platform linux/amd64 --provenance=false --sbom=false --push -t "${IMAGE_TAG}" "${SCRIPT_DIR}" >/dev/null
-  docker buildx build --platform linux/amd64 --provenance=false --sbom=false --push -t "${IMAGE_LATEST}" "${SCRIPT_DIR}" >/dev/null
+  docker buildx build --platform linux/arm64 --provenance=false --sbom=false --push -t "${IMAGE_TAG}" "${SCRIPT_DIR}" >/dev/null
+  docker buildx build --platform linux/arm64 --provenance=false --sbom=false --push -t "${IMAGE_LATEST}" "${SCRIPT_DIR}" >/dev/null
 else
   # Fallback: build locally then push
-  docker build --platform linux/amd64 -t "${IMAGE_TAG}" -t "${IMAGE_LATEST}" "${SCRIPT_DIR}" >/dev/null
+  docker build --platform linux/arm64 -t "${IMAGE_TAG}" -t "${IMAGE_LATEST}" "${SCRIPT_DIR}" >/dev/null
   echo >&2 "Pushing image to ECR..."
   docker push "${IMAGE_TAG}" >/dev/null
   docker push "${IMAGE_LATEST}" >/dev/null
@@ -212,12 +212,26 @@ wait_for_lambda_ready() {
 
 # Deploy Lambda
 if aws lambda get-function --function-name "${LAMBDA_NAME}" --region "${REGION}" >/dev/null 2>&1; then
-  echo >&2 "Updating ${LAMBDA_NAME}..."
-  wait_for_lambda_ready "${LAMBDA_NAME}"
-  aws lambda update-function-code --function-name "${LAMBDA_NAME}" --image-uri "${IMAGE_LATEST}" --region "${REGION}" >/dev/null
-  wait_for_lambda_ready "${LAMBDA_NAME}"
-  # package-type cannot be changed after creation, so omit it from update
-  aws lambda update-function-configuration --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --environment "${env_json}" --region "${REGION}" >/dev/null
+ # Check current architecture
+  current_arch=$(aws lambda get-function-configuration --function-name "${LAMBDA_NAME}" --region "${REGION}" --query 'Architectures[0]' --output text 2>/dev/null || echo "x86_64")
+  
+  if [[ "${current_arch}" != "arm64" ]]; then
+    echo >&2 "Warning: ${LAMBDA_NAME} is currently ${current_arch}, but needs to be arm64."
+    echo >&2 "Architecture cannot be changed after creation. Deleting and recreating function..."
+    aws lambda delete-function --function-name "${LAMBDA_NAME}" --region "${REGION}" >/dev/null
+    # Wait a bit for deletion to complete
+    sleep 5
+    echo >&2 "Creating ${LAMBDA_NAME} with arm64 architecture..."
+    aws lambda create-function --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --package-type=Image --code "ImageUri=${IMAGE_LATEST}" --architectures arm64 --environment "${env_json}" --timeout "${LAMBDA_TIMEOUT}" --region "${REGION}" >/dev/null
+  else
+    echo >&2 "Updating ${LAMBDA_NAME}..."
+    wait_for_lambda_ready "${LAMBDA_NAME}"
+    aws lambda update-function-code --function-name "${LAMBDA_NAME}" --image-uri "${IMAGE_LATEST}" --region "${REGION}" >/dev/null
+    wait_for_lambda_ready "${LAMBDA_NAME}"
+    # package-type and architecture cannot be changed after creation, so omit them from update
+    # Note: Handler is specified in Dockerfile CMD, not in Lambda config for container images
+    aws lambda update-function-configuration --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --environment "${env_json}" --timeout "${LAMBDA_TIMEOUT}" --region "${REGION}" >/dev/null
+  fi
 else
   echo >&2 "Creating ${LAMBDA_NAME}..."
   aws lambda create-function --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --package-type=Image --code "ImageUri=${IMAGE_LATEST}" --environment "${env_json}" --region "${REGION}" >/dev/null
