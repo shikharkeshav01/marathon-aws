@@ -1,0 +1,19 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+
+# Lambda build artifacts
+*.zip
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Secrets
+.secrets/
+*.json
+!package.json
+!tsconfig.json

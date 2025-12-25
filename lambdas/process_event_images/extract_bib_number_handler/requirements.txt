@@ -1,0 +1,6 @@
+opencv-python-headless
+numpy
+easyocr
+ultralytics
+google-api-python-client
+
