@@ -42,18 +42,18 @@ def add_entry_to_db(event_id, filename, bib_numbers):
     Schema:
       EventImageId (String, uuid4)
       BibId       (String)
-      EventId     (String or Number)
+      EventId     number
       Filename    (String)
     """
-    table_name = os.environ["BIB_IMAGES_TABLE"]
+    table_name = os.environ["EVENT_IMAGES_TABLE"]
     table = ddb.Table(table_name)
     print(f"Writing {len(bib_numbers)} items to table {table_name} for {filename}")
     for bib_id in bib_numbers:
         event_image_id = str(uuid.uuid4())
         item = {
-            "EventImageId": event_image_id,
+            "Id": event_image_id,
             "BibId": str(bib_id),
-            "EventId": str(event_id),
+            "EventId": int(event_id),
             "Filename": filename
         }
         table.put_item(Item=item)
