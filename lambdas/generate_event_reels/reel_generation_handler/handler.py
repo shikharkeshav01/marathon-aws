@@ -1,8 +1,5 @@
 # processor.py
 import os, json, boto3, traceback, mimetypes
-from googleapiclient.discovery import build
-from google.oauth2 import service_account
-from bib_extraction import detect_and_tabulate_bibs_easyocr
 from reel_generation import overlay_images_on_video
 from boto3.dynamodb.conditions import Key, Attr
 import uuid
@@ -16,13 +13,6 @@ ddb = boto3.resource("dynamodb")
 s3 = boto3.client("s3")
 RAW_BUCKET = os.environ["RAW_BUCKET"]
 
-# Google Drive
-SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
-creds = service_account.Credentials.from_service_account_file(
-    os.environ["GDRIVE_SA_PATH"],
-    scopes=SCOPES
-)
-drive = build("drive", "v3", credentials=creds)
 
 def get_images_from_db(event_id, bib_id):
         table = ddb.Table(os.environ["EVENT_IMAGES_TABLE"])
@@ -31,7 +21,7 @@ def get_images_from_db(event_id, bib_id):
             KeyConditionExpression=Key('EventId').eq(event_id),
             FilterExpression=Attr('BibId').eq(str(bib_id))
         )
-        return [item['filename'] for item in response.get('Items', [])]
+        return [item['Filename'] for item in response.get('Items', [])]
 
 def handler(event, context):
     """
@@ -51,7 +41,7 @@ def handler(event, context):
     reel_s3_key = event.get("reelS3Key")
     reel_config = event.get("reelConfiguration")
     bib_id = event.get("bibId")
-    image_s3_key=event.get("imageS3Keys")
+    image_s3_keys=event.get("imageS3Keys")
     overlays = json.loads(reel_config).get("overlays")
 
     # Download background video
@@ -66,7 +56,7 @@ def handler(event, context):
 
     local_image_paths = []
     # Download images
-    if image_s3_key is None:
+    if image_s3_keys is None:
 
         filenames = get_images_from_db(event_id, bib_id)
         if len(filenames) < len(overlays):
@@ -88,14 +78,14 @@ def handler(event, context):
                 raise e
     
     else:
-        if len(filenames) < len(overlays):
+        if len(image_s3_keys) < len(overlays):
             return {
                 "eventId": event_id,
                 "ok": False,
                 "error": f"Not enough images found for bib_id{bib_id}"
             }
         print("Downloading images")
-        for filename in image_s3_key:
+        for filename in image_s3_keys:
             local_image_path = os.path.join("/tmp", filename)
             image_s3_key = filename
             try:

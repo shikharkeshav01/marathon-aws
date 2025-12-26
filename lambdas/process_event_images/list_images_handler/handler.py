@@ -58,6 +58,7 @@ def handler(event, context):
             "DriveUrl": str(gdrive_folder_url),
             "EventId": int(event_id),
             "Status": "IN_PROGRESS",
+            "RequestType": "PROCESS_EVENT_IMAGES"
         }
     )
 

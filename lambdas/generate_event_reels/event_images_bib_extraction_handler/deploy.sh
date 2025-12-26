@@ -28,6 +28,7 @@ if [[ $# -eq 0 ]]; then
     requests_table="EventRequests"
     images_table="EventImages"
     reels_table="EventReels"
+    gsi_name="EventId-index"
     
     if ! aws dynamodb describe-table --table-name "${requests_table}" --region "${REGION}" >/dev/null 2>&1; then
       echo >&2 "Creating DynamoDB table ${requests_table}..."
@@ -59,7 +60,7 @@ if [[ $# -eq 0 ]]; then
     reels_arn="$(aws dynamodb describe-table --table-name "${reels_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
     
     ddb_policy=$(cat <<EOF
-{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query","dynamodb:Scan"],"Resource":["${requests_arn}","${images_arn}","${reels_arn}"]}]}
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query","dynamodb:Scan"],"Resource":["${requests_arn}","${requests_arn}/index/${gsi_name}","${requests_arn}/index/*","${images_arn}","${images_arn}/index/*","${reels_arn}","${reels_arn}/index/*"]}]}
 EOF
 )
     aws iam put-role-policy --role-name "${LAMBDA_ROLE_NAME}" --policy-name "ddb" --policy-document "${ddb_policy}" >/dev/null

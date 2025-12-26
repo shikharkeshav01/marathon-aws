@@ -7,6 +7,7 @@ set -euo pipefail
 LAMBDA_NAME="reel_generation_handler"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TIMESTAMP_TAG="$(date +%Y%m%d%H%M%S)"
+LAMBDA_TIMEOUT="300"
 
 # Check if Dockerfile exists
 if [[ ! -f "${SCRIPT_DIR}/Dockerfile" ]]; then
@@ -65,7 +66,7 @@ if [[ $# -eq 0 ]]; then
     reels_arn="$(aws dynamodb describe-table --table-name "${reels_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
     
     ddb_policy=$(cat <<EOF
-{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query","dynamodb:Scan"],"Resource":["${requests_arn}","${images_arn}","${reels_arn}"]}]}
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query","dynamodb:Scan"],"Resource":["${requests_arn}","${requests_arn}/index/*","${images_arn}","${images_arn}/index/*","${reels_arn}","${reels_arn}/index/*"]}]}
 EOF
 )
     aws iam put-role-policy --role-name "${LAMBDA_ROLE_NAME}" --policy-name "ddb" --policy-document "${ddb_policy}" >/dev/null
@@ -222,7 +223,7 @@ if aws lambda get-function --function-name "${LAMBDA_NAME}" --region "${REGION}"
     # Wait a bit for deletion to complete
     sleep 5
     echo >&2 "Creating ${LAMBDA_NAME} with arm64 architecture..."
-    aws lambda create-function --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --package-type=Image --code "ImageUri=${IMAGE_LATEST}" --architectures arm64 --environment "${env_json}" --timeout "${LAMBDA_TIMEOUT}" --region "${REGION}" >/dev/null
+    aws lambda create-function --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --package-type=Image --code "ImageUri=${IMAGE_LATEST}" --architectures arm64 --architectures arm64 --environment "${env_json}" --timeout "${LAMBDA_TIMEOUT}" --region "${REGION}" >/dev/null
   else
     echo >&2 "Updating ${LAMBDA_NAME}..."
     wait_for_lambda_ready "${LAMBDA_NAME}"
