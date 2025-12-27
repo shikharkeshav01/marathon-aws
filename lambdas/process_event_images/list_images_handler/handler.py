@@ -4,6 +4,8 @@ from googleapiclient.discovery import build
 from google.oauth2 import service_account
 from boto3.dynamodb.conditions import Key
 import pandas as pd
+from decimal import Decimal, InvalidOperation
+
 
 def normalize_drive_id(raw: str) -> str:
     # strip querystring/fragments
@@ -82,8 +84,8 @@ def handler(event, context):
             completion_time = None
             if pd.notna(row.get("Completion Time")):
                 try:
-                    completion_time = float(row["Completion Time"])
-                except (ValueError, TypeError):
+                    completion_time = Decimal(str(row["Completion Time"]))
+                except (InvalidOperation, ValueError, TypeError):
                     completion_time = None
             
             participants_table.put_item(
@@ -99,7 +101,7 @@ def handler(event, context):
             )
         except Exception as e:
             print(f"Error storing participant {row.get('Bib No', 'unknown')}: {e}")
-            continue
+            raise e
 
     # List images in the folder and return URLs for Step Functions Map
     image_items = []
