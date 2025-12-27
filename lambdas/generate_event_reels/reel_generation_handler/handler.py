@@ -7,7 +7,6 @@ import uuid
 
 # DynamoDB (schema: EventId (N) PK, DriveUrl (S), Status (S))
 ddb = boto3.resource("dynamodb")
-# jobs = ddb.Table(os.environ["JOBS_TABLE"])
 
 # S3
 s3 = boto3.client("s3")
@@ -99,8 +98,12 @@ def handler(event, context):
                 raise e
 
 
-    for i in range(len(overlays)):
-        overlays[i]["image_path"] = local_image_paths[i]
+    # for i in range(len(overlays)):
+    #     overlays[i]["image_path"] = local_image_paths[i]
+
+    for overlay in overlays:
+        if overlay.get("type") == "image":
+            overlay["image_path"] = local_image_paths.pop(0)
     
     # output_path = os.path.join("/tmp", f"{event_id}/ProcessedReels/{bib_id}.mp4")
     output_path = os.path.join("/tmp", f"{bib_id}.mp4")

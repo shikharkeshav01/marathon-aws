@@ -40,6 +40,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 4) Copy your function code
 COPY handler.py ${LAMBDA_TASK_ROOT}/
 COPY reel_generation.py ${LAMBDA_TASK_ROOT}/
+COPY DejaVuSans.ttf ${LAMBDA_TASK_ROOT}/
 
 # 5) Set the handler (module.function)
 CMD ["handler.handler"]
