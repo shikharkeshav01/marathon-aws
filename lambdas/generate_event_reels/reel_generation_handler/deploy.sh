@@ -35,21 +35,22 @@ if [[ $# -eq 0 ]]; then
     requests_table="EventRequests"
     images_table="EventImages"
     reels_table="EventReels"
+    participants_table="EventParticipants"
     
     if ! aws dynamodb describe-table --table-name "${requests_table}" --region "${REGION}" >/dev/null 2>&1; then
       echo >&2 "Creating DynamoDB table ${requests_table}..."
       aws dynamodb create-table --table-name "${requests_table}" --billing-mode PAY_PER_REQUEST \
-        --attribute-definitions "AttributeName=RequestId,AttributeType=S" "AttributeName=EventId,AttributeType=N" \
+        --attribute-definitions "AttributeName=RequestId,AttributeType=S" \
         --key-schema "AttributeName=RequestId,KeyType=HASH" \
-        --global-secondary-indexes "[{\"IndexName\":\"EventId-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]" \
         --region "${REGION}" >/dev/null
     fi
     
     if ! aws dynamodb describe-table --table-name "${images_table}" --region "${REGION}" >/dev/null 2>&1; then
       echo >&2 "Creating DynamoDB table ${images_table}..."
       aws dynamodb create-table --table-name "${images_table}" --billing-mode PAY_PER_REQUEST \
-        --attribute-definitions "AttributeName=Id,AttributeType=S" \
+        --attribute-definitions "AttributeName=Id,AttributeType=S" "AttributeName=EventId,AttributeType=N" \
         --key-schema "AttributeName=Id,KeyType=HASH" \
+        --global-secondary-indexes "[{\"IndexName\":\"EventId-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]" \
         --region "${REGION}" >/dev/null
     fi
     
@@ -61,12 +62,21 @@ if [[ $# -eq 0 ]]; then
         --region "${REGION}" >/dev/null
     fi
     
+    if ! aws dynamodb describe-table --table-name "${participants_table}" --region "${REGION}" >/dev/null 2>&1; then
+      echo >&2 "Creating DynamoDB table ${participants_table}..."
+      aws dynamodb create-table --table-name "${participants_table}" --billing-mode PAY_PER_REQUEST \
+        --attribute-definitions "AttributeName=EventId,AttributeType=N" "AttributeName=BibId,AttributeType=S" \
+        --key-schema "AttributeName=EventId,KeyType=HASH" "AttributeName=BibId,KeyType=RANGE" \
+        --region "${REGION}" >/dev/null
+    fi
+    
     requests_arn="$(aws dynamodb describe-table --table-name "${requests_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
     images_arn="$(aws dynamodb describe-table --table-name "${images_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
     reels_arn="$(aws dynamodb describe-table --table-name "${reels_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
+    participants_arn="$(aws dynamodb describe-table --table-name "${participants_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
     
     ddb_policy=$(cat <<EOF
-{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query","dynamodb:Scan"],"Resource":["${requests_arn}","${requests_arn}/index/*","${images_arn}","${images_arn}/index/*","${reels_arn}","${reels_arn}/index/*"]}]}
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query","dynamodb:Scan"],"Resource":["${requests_arn}","${requests_arn}/index/*","${images_arn}","${images_arn}/index/*","${reels_arn}","${reels_arn}/index/*","${participants_arn}","${participants_arn}/index/*"]}]}
 EOF
 )
     aws iam put-role-policy --role-name "${LAMBDA_ROLE_NAME}" --policy-name "ddb" --policy-document "${ddb_policy}" >/dev/null
@@ -85,27 +95,36 @@ EOF
     requests_table="EventRequests"
     images_table="EventImages"
     reels_table="EventReels"
+    participants_table="EventParticipants"
     
     if ! aws dynamodb describe-table --table-name "${requests_table}" --region "${REGION}" >/dev/null 2>&1; then
       echo >&2 "Creating DynamoDB table ${requests_table}..."
       aws dynamodb create-table --table-name "${requests_table}" --billing-mode PAY_PER_REQUEST \
-        --attribute-definitions "AttributeName=RequestId,AttributeType=S" "AttributeName=EventId,AttributeType=N" \
+        --attribute-definitions "AttributeName=RequestId,AttributeType=S" \
         --key-schema "AttributeName=RequestId,KeyType=HASH" \
-        --global-secondary-indexes "[{\"IndexName\":\"EventId-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]" \
         --region "${REGION}" >/dev/null
     fi
     
     if ! aws dynamodb describe-table --table-name "${images_table}" --region "${REGION}" >/dev/null 2>&1; then
       echo >&2 "Creating DynamoDB table ${images_table}..."
       aws dynamodb create-table --table-name "${images_table}" --billing-mode PAY_PER_REQUEST \
-        --attribute-definitions "AttributeName=Id,AttributeType=S" \
+        --attribute-definitions "AttributeName=Id,AttributeType=S" "AttributeName=EventId,AttributeType=N" \
         --key-schema "AttributeName=Id,KeyType=HASH" \
+        --global-secondary-indexes "[{\"IndexName\":\"EventId-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]" \
         --region "${REGION}" >/dev/null
     fi
     
     if ! aws dynamodb describe-table --table-name "${reels_table}" --region "${REGION}" >/dev/null 2>&1; then
       echo >&2 "Creating DynamoDB table ${reels_table}..."
       aws dynamodb create-table --table-name "${reels_table}" --billing-mode PAY_PER_REQUEST \
+        --attribute-definitions "AttributeName=EventId,AttributeType=N" "AttributeName=BibId,AttributeType=S" \
+        --key-schema "AttributeName=EventId,KeyType=HASH" "AttributeName=BibId,KeyType=RANGE" \
+        --region "${REGION}" >/dev/null
+    fi
+    
+    if ! aws dynamodb describe-table --table-name "${participants_table}" --region "${REGION}" >/dev/null 2>&1; then
+      echo >&2 "Creating DynamoDB table ${participants_table}..."
+      aws dynamodb create-table --table-name "${participants_table}" --billing-mode PAY_PER_REQUEST \
         --attribute-definitions "AttributeName=EventId,AttributeType=N" "AttributeName=BibId,AttributeType=S" \
         --key-schema "AttributeName=EventId,KeyType=HASH" "AttributeName=BibId,KeyType=RANGE" \
         --region "${REGION}" >/dev/null

@@ -9,7 +9,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LAMBDA_DIR="${ROOT_DIR}/lambdas"
 STEP_FUNCTIONS_DIR="${ROOT_DIR}/step_functions"
 REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-ap-south-1}}"
-STAGE="${STAGE:-prod}"
 RUNTIME="${LAMBDA_RUNTIME:-python3.13}"
 
 usage() {
@@ -93,60 +92,17 @@ ensure_log_group() {
 }
 
 
-ensure_rest_api() {
-  local api_name="$1"
-  local resource_path="$2"
-  local state_machine_arn="$3"
-  local apigw_role_arn="$4"
-
-  local api_id
-  api_id="$(aws apigateway get-rest-apis --region "${REGION}" --query "items[?name=='${api_name}'].id | [0]" --output text)"
-  if [[ "${api_id}" == "None" || -z "${api_id}" ]]; then
-    echo "Creating REST API ${api_name}..."
-    api_id="$(aws apigateway create-rest-api --name "${api_name}" --region "${REGION}" --query id --output text)"
-  fi
-
-  local root_id
-  root_id="$(aws apigateway get-resources --rest-api-id "${api_id}" --region "${REGION}" --query "items[?path=='/'].id" --output text)"
-
-  local resource_id
-  resource_id="$(aws apigateway get-resources --rest-api-id "${api_id}" --region "${REGION}" --query "items[?path=='/${resource_path}'].id" --output text)"
-  if [[ "${resource_id}" == "None" || -z "${resource_id}" ]]; then
-    echo "Creating resource /${resource_path}..."
-    resource_id="$(aws apigateway create-resource --rest-api-id "${api_id}" --parent-id "${root_id}" --path-part "${resource_path}" --region "${REGION}" --query id --output text)"
-  fi
-
-  aws apigateway put-method --rest-api-id "${api_id}" --resource-id "${resource_id}" --http-method POST --authorization-type NONE --region "${REGION}" >/dev/null 2>&1 || true
-
-  local uri="arn:aws:apigateway:${REGION}:states:action/StartExecution"
-  aws apigateway put-integration \
-    --rest-api-id "${api_id}" \
-    --resource-id "${resource_id}" \
-    --http-method POST \
-    --type AWS \
-    --integration-http-method POST \
-    --uri "${uri}" \
-    --credentials "${apigw_role_arn}" \
-    --request-templates "{\"application/json\":\"{\\\"input\\\": \\\"$util.escapeJavaScript($input.body)\\\", \\\"stateMachineArn\\\": \\\"${state_machine_arn}\\\"}\"}" \
-    --region "${REGION}" >/dev/null
-
-  aws apigateway put-method-response --rest-api-id "${api_id}" --resource-id "${resource_id}" --http-method POST --status-code 200 --region "${REGION}" >/dev/null 2>&1 || true
-  aws apigateway put-integration-response --rest-api-id "${api_id}" --resource-id "${resource_id}" --http-method POST --status-code 200 --region "${REGION}" >/dev/null 2>&1 || true
-
-  aws apigateway create-deployment --rest-api-id "${api_id}" --stage-name "${STAGE}" --region "${REGION}" >/dev/null
-  echo "https://${api_id}.execute-api.${REGION}.amazonaws.com/${STAGE}/${resource_path}"
-}
-
 # Step 1: Create DynamoDB tables
 echo "=== Setting up DynamoDB tables ==="
 requests_table="EventRequests"
 images_table="EventImages"
 reels_table="EventReels"
 
-ensure_table "${requests_table}" "RequestId" "S" "" "" "AttributeName=EventId,AttributeType=N" \
+ensure_table "${requests_table}" "RequestId" "S"
+
+ensure_table "${images_table}" "Id" "S" "" "" "AttributeName=EventId,AttributeType=N" \
   "[{\"IndexName\":\"EventId-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]"
 
-ensure_table "${images_table}" "Id" "S"
 ensure_table "${reels_table}" "EventId" "N" "BibId" "S"
 
 requests_arn="$(aws dynamodb describe-table --table-name "${requests_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
@@ -158,19 +114,15 @@ echo ""
 echo "=== Setting up IAM roles ==="
 lambda_role_name="lambda-role"
 sfn_role_name="sfn-role"
-apigw_role_name="apigw-role"
 
 lambda_assume='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
 sfn_assume='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"states.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
-apigw_assume='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"apigateway.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
 
 ensure_role "${lambda_role_name}" "${lambda_assume}"
 ensure_role "${sfn_role_name}" "${sfn_assume}"
-ensure_role "${apigw_role_name}" "${apigw_assume}"
 
 lambda_role_arn="$(aws iam get-role --role-name "${lambda_role_name}" --query 'Role.Arn' --output text)"
 sfn_role_arn="$(aws iam get-role --role-name "${sfn_role_name}" --query 'Role.Arn' --output text)"
-apigw_role_arn="$(aws iam get-role --role-name "${apigw_role_name}" --query 'Role.Arn' --output text)"
 
 # Attach policies to roles
 logs_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["logs:CreateLogGroup","logs:CreateLogStream","logs:PutLogEvents"],"Resource":"*"}]}'
@@ -258,39 +210,9 @@ if "${deploy_reels}"; then
   reels_sm_arn=$("${STEP_FUNCTIONS_DIR}/generate_reels_state_machine/deploy.sh" "${REGION}" "${sfn_role_arn}" "${event_images_bib_extraction_handler_arn}" "${reel_generation_handler_arn}" "${reel_generation_completion_handler_arn}")
 fi
 
-# Step 5: Update API Gateway role policy with state machine ARNs
-sm_arns=()
-if [[ -n "${process_sm_arn}" ]]; then sm_arns+=("\"${process_sm_arn}\""); fi
-if [[ -n "${reels_sm_arn}" ]]; then sm_arns+=("\"${reels_sm_arn}\""); fi
-sm_arns_joined=$(IFS=,; echo "${sm_arns[*]}")
-states_policy=$(cat <<EOF
-{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["states:StartExecution"],"Resource":[${sm_arns_joined:-\"*\"}]}]}
-EOF
-)
-put_inline_policy "${apigw_role_name}" "states" "${states_policy}"
-
-# Step 6: Create API Gateway endpoints
-echo ""
-echo "=== Configuring API Gateway ==="
-
-process_url=""
-reels_url=""
-if [[ -n "${process_sm_arn}" ]]; then
-  process_url=$(ensure_rest_api "process-images-api" "process-event-images" "${process_sm_arn}" "${apigw_role_arn}")
-fi
-if [[ -n "${reels_sm_arn}" ]]; then
-  reels_url=$(ensure_rest_api "generate-reels-api" "generate-event-reels" "${reels_sm_arn}" "${apigw_role_arn}")
-fi
-
 # Summary
 echo ""
 echo "=== Deployment Complete ==="
-if [[ -n "${process_url}" ]]; then
-  echo "process-event-images API URL: ${process_url}"
-fi
-if [[ -n "${reels_url}" ]]; then
-  echo "generate-event-reels API URL: ${reels_url}"
-fi
 echo ""
 echo "Lambda ARNs:"
 if "${deploy_process}"; then

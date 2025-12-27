@@ -86,7 +86,9 @@ def handler(event, context):
             }
         print("Downloading images")
         for filename in image_s3_keys:
-            local_image_path = os.path.join("/tmp", filename)
+            
+            local_image_path = os.path.join("/tmp", filename.split('/')[-1])
+            # local_image_path = "/tmp"
             image_s3_key = filename
             try:
                 s3.download_file(RAW_BUCKET, image_s3_key, local_image_path)

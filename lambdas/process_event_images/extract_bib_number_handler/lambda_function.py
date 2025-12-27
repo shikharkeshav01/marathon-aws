@@ -5,6 +5,8 @@ from google.oauth2 import service_account
 from bib_extraction import detect_and_tabulate_bibs_easyocr
 import uuid
 
+from lambdas.process_event_images.list_images_handler.handler import participants_table
+
 # DynamoDB (schema: EventId (N) PK, DriveUrl (S), Status (S))
 ddb = boto3.resource("dynamodb")
 # jobs = ddb.Table(os.environ["JOBS_TABLE"])
@@ -26,9 +28,12 @@ creds = service_account.Credentials.from_service_account_info(
 drive = build("drive", "v3", credentials=creds)
 
 
-def extract_bib_numbers(photo):
+def extract_bib_numbers(photo,event_id):
     try:
         bib_numbers = detect_and_tabulate_bibs_easyocr(photo, image_name="s3_object")
+        participants_table=ddb.Table(os.environ["PARTICIPANTS_TABLE"])
+        bib_numbers = [bib for bib in bib_numbers if "Item" in participants_table.get_item(Key={"EventId": int(event_id), "BibId": str(bib)})]
+
     except Exception as exc:
         print("[ERROR] Failed to extract bib numbers:", exc)
         bib_numbers = []
@@ -111,7 +116,7 @@ def lambda_handler(event, context):
     # 5) Run your processing/model here if needed
     try:
         print("Starting bib extraction...")
-        bib_numbers = extract_bib_numbers(data)
+        bib_numbers = extract_bib_numbers(data,event_id)
         print(f"Bib numbers found: {bib_numbers}")
         
         if bib_numbers or len(bib_numbers) > 0:
