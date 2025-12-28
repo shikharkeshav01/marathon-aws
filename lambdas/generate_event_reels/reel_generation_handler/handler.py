@@ -22,6 +22,13 @@ def get_images_from_db(event_id, bib_id):
         )
         return [item['Filename'] for item in response.get('Items', [])]
 
+def get_participants_from_db(event_id, bib_id):
+    table = ddb.Table(os.environ["EVENT_PARTICIPANTS_TABLE"])
+    response = table.query(
+        KeyConditionExpression=Key('EventId').eq(event_id) & Key('BibId').eq(bib_id)
+    )
+    return response.get('Items', [])
+
 def handler(event, context):
     """
     event = {
@@ -34,14 +41,33 @@ def handler(event, context):
         }
     """
 
+
     
-    print("Generating reel for bib_id", event.get("bibId"))
     event_id = event.get("eventId")
     reel_s3_key = event.get("reelS3Key")
     reel_config = event.get("reelConfiguration")
     bib_id = event.get("bibId")
     image_s3_keys=event.get("imageS3Keys")
+
+    participants = get_participants_from_db(event_id, bib_id)
+    if len(participants) == 0:
+        print(f"BibId {bib_id} not found in event {event_id}")
+        return {
+            "eventId": event_id,
+            "ok": False,
+            "error": f"BibId {bib_id} not found in event {event_id}"
+        }
+    
+    print("Participants: ", participants)
+    
+    completion_time = participants[0].get("CompletionTime")
+    participants_name=participants[0].get("ParticipantName")
+
+    reel_config=reel_config.replace("${completionTime}", str(completion_time))
+    reel_config=reel_config.replace("${participantsName}", participants_name)
     overlays = json.loads(reel_config).get("overlays")
+    print("Reel config: ", reel_config)
+    print("Generating reel for bib_id", event.get("bibId"))
 
     # Download background video
     print("Downloading background video")
@@ -51,6 +77,8 @@ def handler(event, context):
     except Exception as e:
         print(f"Error downloading video: {e}")
         raise e
+    
+    image_overlays=[overlay for overlay in overlays if overlay.get("type") == "image"]
 
 
     local_image_paths = []
@@ -58,11 +86,11 @@ def handler(event, context):
     if image_s3_keys is None:
 
         filenames = get_images_from_db(event_id, bib_id)
-        if len(filenames) < len(overlays):
+        if len(filenames) < len(image_overlays):
             return {
                 "eventId": event_id,
                 "ok": False,
-                "error": f"Not enough images found for bib_id{bib_id}"
+                "error": f"Not enough images found for bib_id:{bib_id}"
             }
         print("Downloading images")
         for filename in filenames:
@@ -77,11 +105,11 @@ def handler(event, context):
                 raise e
     
     else:
-        if len(image_s3_keys) < len(overlays):
+        if len(image_s3_keys) < len(image_overlays):
             return {
                 "eventId": event_id,
                 "ok": False,
-                "error": f"Not enough images found for bib_id{bib_id}"
+                "error": f"Not enough images found for bib_id:{bib_id}"
             }
         print("Downloading images")
         for filename in image_s3_keys:
