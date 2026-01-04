@@ -1,6 +1,11 @@
+import os
+# Set TMPDIR to /tmp to ensure ffmpeg uses writable directory in Lambda
+os.environ['TMPDIR'] = '/tmp'
+os.environ['TEMP'] = '/tmp'
+os.environ['TMP'] = '/tmp'
+
 from moviepy import VideoFileClip, ImageClip, CompositeVideoClip
 import numpy as np
-import os
 from pathlib import Path
 import subprocess
 from PIL import Image, ImageDraw, ImageFont
@@ -451,6 +456,7 @@ def overlay_images_on_video(video_path, overlays, output_path):
         fps=video.fps,
         preset="medium",
         threads=4,
+        temp_audiofile=os.path.join('/tmp', 'temp_audio.m4a')
     )
 
     video.close()

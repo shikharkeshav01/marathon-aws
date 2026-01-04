@@ -97,17 +97,22 @@ echo "=== Setting up DynamoDB tables ==="
 requests_table="EventRequests"
 images_table="EventImages"
 reels_table="EventReels"
+participants_table="EventParticipants"
 
 ensure_table "${requests_table}" "RequestId" "S"
 
 ensure_table "${images_table}" "Id" "S" "" "" "AttributeName=EventId,AttributeType=N" \
   "[{\"IndexName\":\"EventId-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]"
 
-ensure_table "${reels_table}" "EventId" "N" "BibId" "S"
+ensure_table "${reels_table}" "ReelId" "S" "" "" "AttributeName=EventId,AttributeType=N AttributeName=BibId,AttributeType=S" \
+  "[{\"IndexName\":\"EventId-BibId-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"},{\"AttributeName\":\"BibId\",\"KeyType\":\"RANGE\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]"
+
+ensure_table "${participants_table}" "EventId" "N" "BibId" "S"
 
 requests_arn="$(aws dynamodb describe-table --table-name "${requests_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
 images_arn="$(aws dynamodb describe-table --table-name "${images_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
 reels_arn="$(aws dynamodb describe-table --table-name "${reels_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
+participants_arn="$(aws dynamodb describe-table --table-name "${participants_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
 
 # Step 2: Create IAM roles
 echo ""
@@ -127,7 +132,7 @@ sfn_role_arn="$(aws iam get-role --role-name "${sfn_role_name}" --query 'Role.Ar
 # Attach policies to roles
 logs_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["logs:CreateLogGroup","logs:CreateLogStream","logs:PutLogEvents"],"Resource":"*"}]}'
 ddb_policy=$(cat <<EOF
-{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query","dynamodb:Scan"],"Resource":["${requests_arn}","${requests_arn}/index/*","${images_arn}","${images_arn}/index/*","${reels_arn}","${reels_arn}/index/*"]}]}
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query","dynamodb:Scan"],"Resource":["${requests_arn}","${requests_arn}/index/*","${images_arn}","${images_arn}/index/*","${reels_arn}","${reels_arn}/index/*","${participants_arn}","${participants_arn}/index/*"]}]}
 EOF
 )
 invoke_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["lambda:InvokeFunction"],"Resource":"*"}]}'
@@ -146,7 +151,7 @@ put_inline_policy "${lambda_role_name}" "s3" "${s3_policy}"
 
 # Prepare environment JSON for Lambdas
 env_json=$(cat <<EOF
-{"Variables":{"RAW_BUCKET":"marathon-photos","EVENT_REQUESTS_TABLE":"${requests_table}","EVENT_IMAGES_TABLE":"${images_table}","EVENT_REELS_TABLE":"${reels_table}","GDRIVE_SA_SSM_PARAM":"google-service-account"}}
+{"Variables":{"RAW_BUCKET":"marathon-photos","EVENT_REQUESTS_TABLE":"${requests_table}","EVENT_IMAGES_TABLE":"${images_table}","EVENT_REELS_TABLE":"${reels_table}","EVENT_PARTICIPANTS_TABLE":"${participants_table}","GDRIVE_SA_SSM_PARAM":"google-service-account"}}
 EOF
 )
 

@@ -1,5 +1,11 @@
 # processor.py
-import os, json, boto3, traceback, mimetypes
+import os
+# Set TMPDIR to /tmp to ensure ffmpeg and moviepy use writable directory in Lambda
+os.environ['TMPDIR'] = '/tmp'
+os.environ['TEMP'] = '/tmp'
+os.environ['TMP'] = '/tmp'
+
+import json, boto3, traceback, mimetypes
 from reel_generation import overlay_images_on_video
 from boto3.dynamodb.conditions import Key, Attr
 import uuid
@@ -42,7 +48,7 @@ def handler(event, context):
     """
 
 
-    
+    request_id = event.get("requestId")
     event_id = event.get("eventId")
     reel_s3_key = event.get("reelS3Key")
     reel_config = event.get("reelConfiguration")
@@ -86,12 +92,12 @@ def handler(event, context):
     if image_s3_keys is None:
 
         filenames = get_images_from_db(event_id, bib_id)
-        if len(filenames) < len(image_overlays):
-            return {
-                "eventId": event_id,
-                "ok": False,
-                "error": f"Not enough images found for bib_id:{bib_id}"
-            }
+        # if len(filenames) < len(image_overlays):
+        #     return {
+        #         "eventId": event_id,
+        #         "ok": False,
+        #         "error": f"Not enough images found for bib_id:{bib_id}"
+        #     }
         print("Downloading images")
         for filename in filenames:
             local_image_path = os.path.join("/tmp", filename)
@@ -105,12 +111,12 @@ def handler(event, context):
                 raise e
     
     else:
-        if len(image_s3_keys) < len(image_overlays):
-            return {
-                "eventId": event_id,
-                "ok": False,
-                "error": f"Not enough images found for bib_id:{bib_id}"
-            }
+        # if len(image_s3_keys) < len(image_overlays):
+        #     return {
+        #         "eventId": event_id,
+        #         "ok": False,
+        #         "error": f"Not enough images found for bib_id:{bib_id}"
+        #     }
         print("Downloading images")
         for filename in image_s3_keys:
             
@@ -130,9 +136,16 @@ def handler(event, context):
     #     overlays[i]["image_path"] = local_image_paths[i]
 
     for overlay in overlays:
+        if len(local_image_paths) == 0:
+            break
         if overlay.get("type") == "image":
             overlay["image_path"] = local_image_paths.pop(0)
     
+    for overlay in overlays:
+        if overlay.get("type") == "image":
+            if "image_path" not in overlay:
+                overlays.remove(overlay)
+            
     # output_path = os.path.join("/tmp", f"{event_id}/ProcessedReels/{bib_id}.mp4")
     output_path = os.path.join("/tmp", f"{bib_id}.mp4")
 
@@ -149,10 +162,11 @@ def handler(event, context):
         
         event_reel_table.put_item(
             Item={
-                'EventReelId': event_reel_id,
+                'ReelId': event_reel_id,
                 'BibId': str(bib_id),
                 'EventId': int(event_id),
-                'ReelPath': reel_path
+                'ReelPath': reel_path,
+                'RequestId': request_id
             }
         )
     except Exception as e:

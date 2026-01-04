@@ -50,8 +50,9 @@ if [[ $# -eq 0 ]]; then
     if ! aws dynamodb describe-table --table-name "${reels_table}" --region "${REGION}" >/dev/null 2>&1; then
       echo >&2 "Creating DynamoDB table ${reels_table}..."
       aws dynamodb create-table --table-name "${reels_table}" --billing-mode PAY_PER_REQUEST \
-        --attribute-definitions "AttributeName=EventId,AttributeType=N" "AttributeName=BibId,AttributeType=S" \
-        --key-schema "AttributeName=EventId,KeyType=HASH" "AttributeName=BibId,KeyType=RANGE" \
+        --attribute-definitions "AttributeName=ReelId,AttributeType=S" "AttributeName=EventId,AttributeType=N" "AttributeName=BibId,AttributeType=S" \
+        --key-schema "AttributeName=ReelId,KeyType=HASH" \
+        --global-secondary-indexes "[{\"IndexName\":\"EventId-BibId-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"},{\"AttributeName\":\"BibId\",\"KeyType\":\"RANGE\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]" \
         --region "${REGION}" >/dev/null
     fi
     
@@ -110,8 +111,9 @@ EOF
     if ! aws dynamodb describe-table --table-name "${reels_table}" --region "${REGION}" >/dev/null 2>&1; then
       echo >&2 "Creating DynamoDB table ${reels_table}..."
       aws dynamodb create-table --table-name "${reels_table}" --billing-mode PAY_PER_REQUEST \
-        --attribute-definitions "AttributeName=EventId,AttributeType=N" "AttributeName=BibId,AttributeType=S" \
-        --key-schema "AttributeName=EventId,KeyType=HASH" "AttributeName=BibId,KeyType=RANGE" \
+        --attribute-definitions "AttributeName=ReelId,AttributeType=S" "AttributeName=EventId,AttributeType=N" "AttributeName=BibId,AttributeType=S" \
+        --key-schema "AttributeName=ReelId,KeyType=HASH" \
+        --global-secondary-indexes "[{\"IndexName\":\"EventId-BibId-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"},{\"AttributeName\":\"BibId\",\"KeyType\":\"RANGE\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]" \
         --region "${REGION}" >/dev/null
     fi
     

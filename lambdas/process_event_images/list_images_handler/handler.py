@@ -5,6 +5,7 @@ from google.oauth2 import service_account
 from boto3.dynamodb.conditions import Key
 import pandas as pd
 from decimal import Decimal, InvalidOperation
+from datetime import datetime
 
 
 def normalize_drive_id(raw: str) -> str:
@@ -68,7 +69,8 @@ def handler(event, context):
             "EventId": int(event_id),
             "Status": "IN_PROGRESS",
             "RequestType": "PROCESS_EVENT_IMAGES",
-            "CsvKey": csv_key
+            "CsvKey": csv_key,
+            "CreatedAt": datetime.utcnow().isoformat()
         }
     )
     local_csv_path="/tmp/participants.csv"
