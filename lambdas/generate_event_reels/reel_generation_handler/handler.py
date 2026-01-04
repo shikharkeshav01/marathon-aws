@@ -199,14 +199,14 @@ def handler(event, context):
 
     # Upload processed reel to S3
     print("Uploading processed reel")
-    s3_output_key = f"{event_id}/ProcessedReels/{bib_id}.mp4"
+
+    event_reel_id = str(uuid.uuid4())
+    s3_output_key = f"{event_id}/ProcessedReels/{bib_id}_{event_reel_id}.mp4"
     s3.upload_file(output_path, RAW_BUCKET, s3_output_key)
 
     # Write to DynamoDB EventReel table
     try:
         event_reel_table = ddb.Table(os.environ["EVENT_REELS_TABLE"])
-        event_reel_id = str(uuid.uuid4())
-
         event_reel_table.put_item(
             Item={
                 'ReelId': event_reel_id,

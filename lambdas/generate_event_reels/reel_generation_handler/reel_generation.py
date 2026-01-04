@@ -858,6 +858,7 @@ def overlay_images_on_video(video_path, overlays, output_path):
         fps=video.fps,
         preset="medium",
         threads=4,
+        temp_audiofile=os.path.join('/tmp', 'temp_audio.m4a')
     )
 
     video.close()
