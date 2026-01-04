@@ -1,12 +1,7 @@
-import os
-# Set TMPDIR to /tmp to ensure ffmpeg uses writable directory in Lambda
-os.environ['TMPDIR'] = '/tmp'
-os.environ['TEMP'] = '/tmp'
-os.environ['TMP'] = '/tmp'
-
 from moviepy import VideoFileClip, ImageClip, CompositeVideoClip
+from moviepy.video.VideoClip import VideoClip
 import numpy as np
-from pathlib import Path
+import os
 import subprocess
 from PIL import Image, ImageDraw, ImageFont
 
@@ -74,6 +69,46 @@ def _wrap_text(draw, text, font, max_width_px):
             lines.append(" ".join(current))
     return lines
 
+def _create_gradient_image(width, height, start_color, end_color, direction="vertical"):
+    """
+    Create a gradient image.
+
+    Args:
+        width: Image width in pixels
+        height: Image height in pixels
+        start_color: Starting color (RGBA tuple)
+        end_color: Ending color (RGBA tuple)
+        direction: "vertical" (top to bottom) or "horizontal" (left to right)
+
+    Returns:
+        PIL Image with gradient
+    """
+    img = Image.new("RGBA", (width, height))
+    pixels = img.load()
+
+    if direction == "vertical":
+        for y in range(height):
+            ratio = y / max(height - 1, 1)
+            r = int(start_color[0] * (1 - ratio) + end_color[0] * ratio)
+            g = int(start_color[1] * (1 - ratio) + end_color[1] * ratio)
+            b = int(start_color[2] * (1 - ratio) + end_color[2] * ratio)
+            a = int(start_color[3] * (1 - ratio) + end_color[3] * ratio)
+            for x in range(width):
+                pixels[x, y] = (r, g, b, a)
+    elif direction == "horizontal":
+        for x in range(width):
+            ratio = x / max(width - 1, 1)
+            r = int(start_color[0] * (1 - ratio) + end_color[0] * ratio)
+            g = int(start_color[1] * (1 - ratio) + end_color[1] * ratio)
+            b = int(start_color[2] * (1 - ratio) + end_color[2] * ratio)
+            a = int(start_color[3] * (1 - ratio) + end_color[3] * ratio)
+            for y in range(height):
+                pixels[x, y] = (r, g, b, a)
+    else:
+        raise ValueError(f"Invalid gradient direction: {direction}. Use 'vertical' or 'horizontal'.")
+
+    return img
+
 def make_text_rgba_image(
     text: str,
     max_width_px: int | None,
@@ -83,6 +118,7 @@ def make_text_rgba_image(
     stroke_color="#000000",
     stroke_width=0,
     bg_color=None,
+    bg_gradient=None,
     padding=10,
     align="center",        # left|center|right
     line_spacing=6,
@@ -108,8 +144,18 @@ def make_text_rgba_image(
     img_w = max(1, text_w + 2 * pad)
     img_h = max(1, text_h + 2 * pad)
 
-    bg_rgba = _parse_hex_color(bg_color) if bg_color else (0, 0, 0, 0)
-    img = Image.new("RGBA", (img_w, img_h), bg_rgba)
+    # Create background - gradient takes priority over solid color
+    if bg_gradient:
+        # bg_gradient should be a dict like:
+        # {"start": "#000000FF", "end": "#00000000", "direction": "vertical"}
+        start_color = _parse_hex_color(bg_gradient.get("start", "#000000FF"))
+        end_color = _parse_hex_color(bg_gradient.get("end", "#00000000"))
+        direction = bg_gradient.get("direction", "vertical")
+        img = _create_gradient_image(img_w, img_h, start_color, end_color, direction)
+    else:
+        bg_rgba = _parse_hex_color(bg_color) if bg_color else (0, 0, 0, 0)
+        img = Image.new("RGBA", (img_w, img_h), bg_rgba)
+
     draw = ImageDraw.Draw(img)
 
     fill = _parse_hex_color(color) or (255, 255, 255, 255)
@@ -282,6 +328,154 @@ def _resolve_xy(x, y, vw, vh, ow, oh):
 
     return (px, py)
 
+def _get_character_positions(text, font_obj, line_spacing=6):
+    """
+    Calculate the position of each character in the rendered text.
+
+    Returns:
+        List of tuples: [(char, x, y, width, height), ...]
+    """
+    tmp = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(tmp)
+
+    lines = text.split('\n')
+    char_positions = []
+
+    y_offset = 0
+    for line in lines:
+        x_offset = 0
+        for char in line:
+            bbox = draw.textbbox((0, 0), char, font=font_obj)
+            char_width = bbox[2] - bbox[0]
+            char_height = bbox[3] - bbox[1]
+
+            char_positions.append((char, x_offset, y_offset, char_width, char_height))
+            x_offset += char_width
+
+        # Move to next line
+        line_bbox = draw.textbbox((0, 0), line if line else " ", font=font_obj)
+        line_height = line_bbox[3] - line_bbox[1]
+        y_offset += line_height + line_spacing
+
+    return char_positions
+
+
+def make_animated_text_clip(
+    text: str,
+    duration: float,
+    max_width_px: int | None,
+    char_fade_duration: float = 0.15,
+    char_delay: float = 0.05,
+    font="DejaVuSans.ttf",
+    font_size=48,
+    color="#FFFFFF",
+    stroke_color="#000000",
+    stroke_width=0,
+    bg_color=None,
+    bg_gradient=None,
+    padding=10,
+    align="center",
+    line_spacing=6,
+    opacity=1.0
+):
+    """
+    Create an animated text clip where each character fades in sequentially.
+
+    Args:
+        text: Text to display
+        duration: Total duration of the clip
+        max_width_px: Maximum width for text wrapping
+        char_fade_duration: How long each character takes to fade in (seconds)
+        char_delay: Delay between each character starting to fade (seconds)
+        ... (other text styling parameters)
+
+    Returns:
+        VideoClip with character-by-character fade-in animation
+    """
+    # Create the base text image (fully rendered)
+    base_img = make_text_rgba_image(
+        text=text,
+        max_width_px=max_width_px,
+        font=font,
+        font_size=font_size,
+        color=color,
+        stroke_color=stroke_color,
+        stroke_width=stroke_width,
+        bg_color=bg_color,
+        bg_gradient=bg_gradient,
+        padding=padding,
+        align=align,
+        line_spacing=line_spacing,
+        opacity=opacity
+    )
+
+    base_array = np.array(base_img).astype(np.float32)
+    img_height, img_width = base_array.shape[:2]
+
+    # Get font object for character measurements
+    font_obj = _load_font(font, int(font_size))
+
+    # Split text into lines for proper wrapping
+    tmp = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(tmp)
+    wrapped_lines = _wrap_text(draw, text, font_obj, max_width_px)
+    wrapped_text = '\n'.join(wrapped_lines)
+
+    # Get character positions
+    char_positions = _get_character_positions(wrapped_text, font_obj, line_spacing)
+    total_chars = len([c for c in wrapped_text if c != '\n'])
+
+    def make_frame(t):
+        """Generate frame at time t with progressive character fade-in."""
+        # Start with base image
+        frame = base_array.copy()
+
+        # Calculate which characters should be visible and their opacity
+        char_index = 0
+        for char, x, y, w, h in char_positions:
+            if char == '\n':
+                continue
+
+            # Calculate when this character should start and finish fading in
+            char_start_time = char_index * char_delay
+            char_end_time = char_start_time + char_fade_duration
+
+            # Calculate opacity for this character at time t
+            if t < char_start_time:
+                # Not started yet - fully transparent
+                char_opacity = 0.0
+            elif t >= char_end_time:
+                # Fully faded in
+                char_opacity = 1.0
+            else:
+                # Currently fading in
+                progress = (t - char_start_time) / char_fade_duration
+                char_opacity = progress
+
+            # Apply opacity to this character's region
+            # We need to find the character's bounding box in the rendered image
+            # This is approximate - we'll apply opacity to a region
+            x_start = int(padding + x)
+            y_start = int(padding + y)
+            x_end = min(x_start + int(w) + 2, img_width)
+            y_end = min(y_start + int(h) + 2, img_height)
+
+            if x_start < img_width and y_start < img_height:
+                # Modify alpha channel for this character
+                if char_opacity < 1.0:
+                    frame[y_start:y_end, x_start:x_end, 3] *= char_opacity
+
+            char_index += 1
+
+        return frame.astype(np.uint8)
+
+    # Create the animated clip
+    animated_clip = VideoClip(make_frame, duration=duration)
+    animated_clip = animated_clip.with_fps(30)  # 30 fps for smooth animation
+
+    return animated_clip, (img_width, img_height)
+
+
 def save_output():
     pass
 
@@ -339,6 +533,7 @@ def overlay_images_on_video(video_path, overlays, output_path):
     overlay_clips = []
 
     for i, overlay_config in enumerate(overlays):
+        overlay_type = overlay_config.get("type", "image")
         start_time = float(overlay_config.get("start_time", 0))
         duration = float(overlay_config.get("duration", 0))
         end_time = start_time + duration
@@ -350,6 +545,157 @@ def overlay_images_on_video(video_path, overlays, output_path):
         if start_time >= video_duration:
             print(f"Warning: Overlay {i+1} starts after video ends, skipping...")
             continue
+
+        # Handle image_stack type - creates multiple overlays from a single config
+        if overlay_type == "image_stack":
+            # Get all image_paths from this overlay (should be a list)
+            image_paths = overlay_config.get("image_paths", [])
+            if not image_paths:
+                print(f"Warning: image_stack overlay {i+1} has no image_paths, skipping...")
+                continue
+
+            num_images = len(image_paths)
+            time_interval = duration / num_images  # Time between each image appearing
+            rotation_range = float(overlay_config.get("rotation_range", 10))
+            position = overlay_config.get("position", "center")
+            width = overlay_config.get("width", None)
+            height = overlay_config.get("height", None)
+            bg_color = overlay_config.get("bg_color", None)
+            opacity = float(overlay_config.get("opacity", 1.0))
+            scale = overlay_config.get("scale", 1.0)
+            fit_mode = overlay_config.get("fit_mode", "contain")  # "stretch", "contain", "cover"
+
+            # Create an overlay for each image
+            for img_idx, image_path in enumerate(image_paths):
+                if not os.path.exists(image_path):
+                    print(f"Warning: Image not found at {image_path}, skipping...")
+                    continue
+
+                # Calculate timing for this image - each image appears at intervals but stays visible until the end
+                img_start_time = start_time + (img_idx * time_interval)
+                # Duration extends from when this image appears until the end of the total duration
+                img_duration = duration - (img_idx * time_interval)
+
+                # Generate random rotation within range
+                import random
+                random_rotation = random.uniform(-rotation_range, rotation_range)
+
+                # Transform and load image (but don't apply rotation yet)
+                transformed_img = transform_image(image_path, scale=scale, rotation=0, opacity=opacity)
+
+                # Apply width/height override with fit_mode
+                if width is not None or height is not None:
+                    current_w, current_h = transformed_img.size
+
+                    # Calculate target dimensions
+                    if width is not None:
+                        target_width = int(video_size[0] * width) if width <= 1.0 else int(width)
+                    else:
+                        target_width = None
+
+                    if height is not None:
+                        target_height = int(video_size[1] * height) if height <= 1.0 else int(height)
+                    else:
+                        target_height = None
+
+                    # Apply fit_mode logic
+                    if fit_mode == "stretch":
+                        # Stretch to exact dimensions (may distort aspect ratio)
+                        new_width = target_width if target_width is not None else current_w
+                        new_height = target_height if target_height is not None else current_h
+                        transformed_img = transformed_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+                    elif fit_mode == "contain":
+                        # Fit within bounds while maintaining aspect ratio
+                        if target_width is not None and target_height is not None:
+                            # Calculate scaling factors
+                            width_scale = target_width / current_w
+                            height_scale = target_height / current_h
+                            # Use the smaller scale to ensure it fits within both constraints
+                            scale_factor = min(width_scale, height_scale)
+                            new_width = int(current_w * scale_factor)
+                            new_height = int(current_h * scale_factor)
+                        elif target_width is not None:
+                            # Only width specified, scale proportionally
+                            scale_factor = target_width / current_w
+                            new_width = target_width
+                            new_height = int(current_h * scale_factor)
+                        else:  # target_height is not None
+                            # Only height specified, scale proportionally
+                            scale_factor = target_height / current_h
+                            new_width = int(current_w * scale_factor)
+                            new_height = target_height
+                        transformed_img = transformed_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+                    elif fit_mode == "cover":
+                        # Cover bounds while maintaining aspect ratio (may crop)
+                        if target_width is not None and target_height is not None:
+                            # Calculate scaling factors
+                            width_scale = target_width / current_w
+                            height_scale = target_height / current_h
+                            # Use the larger scale to ensure it covers both dimensions
+                            scale_factor = max(width_scale, height_scale)
+                            new_width = int(current_w * scale_factor)
+                            new_height = int(current_h * scale_factor)
+                            transformed_img = transformed_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+                            # Crop to exact target dimensions from center
+                            left = (new_width - target_width) // 2
+                            top = (new_height - target_height) // 2
+                            right = left + target_width
+                            bottom = top + target_height
+                            transformed_img = transformed_img.crop((left, top, right, bottom))
+                        elif target_width is not None:
+                            # Only width specified, scale proportionally (same as contain)
+                            scale_factor = target_width / current_w
+                            new_width = target_width
+                            new_height = int(current_h * scale_factor)
+                            transformed_img = transformed_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                        else:  # target_height is not None
+                            # Only height specified, scale proportionally (same as contain)
+                            scale_factor = target_height / current_h
+                            new_width = int(current_w * scale_factor)
+                            new_height = target_height
+                            transformed_img = transformed_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                    else:
+                        print(f"Warning: Unknown fit_mode '{fit_mode}', defaulting to 'contain'")
+                        # Default to contain
+                        if target_width is not None and target_height is not None:
+                            width_scale = target_width / current_w
+                            height_scale = target_height / current_h
+                            scale_factor = min(width_scale, height_scale)
+                            new_width = int(current_w * scale_factor)
+                            new_height = int(current_h * scale_factor)
+                        elif target_width is not None:
+                            scale_factor = target_width / current_w
+                            new_width = target_width
+                            new_height = int(current_h * scale_factor)
+                        else:
+                            scale_factor = target_height / current_h
+                            new_width = int(current_w * scale_factor)
+                            new_height = target_height
+                        transformed_img = transformed_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+                # If bg_color is specified, add a border/mat around the image (not full-screen)
+                if bg_color is not None:
+                    bg_rgba = _parse_hex_color(bg_color)
+                    border_size = 20  # Pixels of border/mat around the image
+                    img_w, img_h = transformed_img.size
+                    matted_img = Image.new("RGBA", (img_w + border_size * 2, img_h + border_size * 2), bg_rgba)
+                    matted_img.paste(transformed_img, (border_size, border_size), transformed_img)
+                    transformed_img = matted_img
+
+                # Apply rotation after adding border (so border rotates with image)
+                if random_rotation != 0:
+                    transformed_img = transformed_img.rotate(-random_rotation, expand=True, fillcolor=(0, 0, 0, 0))
+
+                img_array = np.array(transformed_img)
+                img_clip = ImageClip(img_array, duration=img_duration).with_start(img_start_time)
+                pos = get_position(position, video_size, (img_array.shape[1], img_array.shape[0]))
+                img_clip = img_clip.with_position(pos)
+                overlay_clips.append(img_clip)
+
+            continue  # Skip the rest of the loop, we've handled this overlay
 
         rotation = float(overlay_config.get("rotation", 0))
         opacity = float(overlay_config.get("opacity", 1.0))
@@ -363,6 +709,7 @@ def overlay_images_on_video(video_path, overlays, output_path):
             position = overlay_config.get("position", "center")
             width = overlay_config.get("width", None)
             height = overlay_config.get("height", None)
+            bg_color = overlay_config.get("bg_color", None)  # Background color for full-screen background
 
 
 
@@ -387,6 +734,22 @@ def overlay_images_on_video(video_path, overlays, output_path):
 
                     transformed_img = transformed_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
 
+                # If bg_color is specified, create a full-screen background and center the image
+                if bg_color is not None:
+                    bg_rgba = _parse_hex_color(bg_color)
+                    # Create full-screen background
+                    background = Image.new("RGBA", video_size, bg_rgba)
+
+                    # Center the image on the background
+                    img_w, img_h = transformed_img.size
+                    x_offset = (video_size[0] - img_w) // 2
+                    y_offset = (video_size[1] - img_h) // 2
+                    background.paste(transformed_img, (x_offset, y_offset), transformed_img)
+
+                    transformed_img = background
+                    # Position must be (0, 0) since background is full-screen
+                    position = (0, 0)
+
                 img_array = np.array(transformed_img)
 
                 img_clip = ImageClip(img_array, duration=duration).with_start(start_time)
@@ -408,9 +771,15 @@ def overlay_images_on_video(video_path, overlays, output_path):
             stroke_color = text_style.get("stroke_color", "#000000")
             stroke_width = int(text_style.get("stroke_width", 0))
             bg_color = text_style.get("bg_color", None)
+            bg_gradient = text_style.get("bg_gradient", None)
             padding = int(text_style.get("padding", 10))
             align = text_style.get("align", "center")
             line_spacing = int(text_style.get("line_spacing", 6))
+
+            # Animation parameters
+            char_animation = text_style.get("char_animation", False)
+            char_fade_duration = float(text_style.get("char_fade_duration", 0.15))
+            char_delay = float(text_style.get("char_delay", 0.05))
 
             # max_width can be px or ratio of video width
             max_width = text_style.get("max_width", None)
@@ -419,31 +788,64 @@ def overlay_images_on_video(video_path, overlays, output_path):
             else:
                 max_width_px = int(video_size[0] * max_width) if float(max_width) <= 1.0 else int(max_width)
 
-            text_img = make_text_rgba_image(
-                text=text,
-                max_width_px=max_width_px,
-                font=font,
-                font_size=font_size,
-                color=color,
-                stroke_color=stroke_color,
-                stroke_width=stroke_width,
-                bg_color=bg_color,
-                padding=padding,
-                align=align,
-                line_spacing=line_spacing,
-                opacity=opacity
-            )
+            # Check if character-by-character animation is enabled
+            if char_animation:
+                # Use animated text clip
+                text_clip, (text_width, text_height) = make_animated_text_clip(
+                    text=text,
+                    duration=duration,
+                    max_width_px=max_width_px,
+                    char_fade_duration=char_fade_duration,
+                    char_delay=char_delay,
+                    font=font,
+                    font_size=font_size,
+                    color=color,
+                    stroke_color=stroke_color,
+                    stroke_width=stroke_width,
+                    bg_color=bg_color,
+                    bg_gradient=bg_gradient,
+                    padding=padding,
+                    align=align,
+                    line_spacing=line_spacing,
+                    opacity=opacity
+                )
+                text_clip = text_clip.with_start(start_time)
 
-            # rotate text if needed
-            if rotation != 0:
-                text_img = text_img.rotate(-rotation, expand=True, fillcolor=(0, 0, 0, 0))
+                # Apply rotation if needed
+                if rotation != 0:
+                    text_clip = text_clip.rotate(-rotation)
 
-            text_array = np.array(text_img)
+                tpos = get_position(text_position, video_size, (text_width, text_height))
+                text_clip = text_clip.with_position(tpos)
+                overlay_clips.append(text_clip)
+            else:
+                # Use static text image (original behavior)
+                text_img = make_text_rgba_image(
+                    text=text,
+                    max_width_px=max_width_px,
+                    font=font,
+                    font_size=font_size,
+                    color=color,
+                    stroke_color=stroke_color,
+                    stroke_width=stroke_width,
+                    bg_color=bg_color,
+                    bg_gradient=bg_gradient,
+                    padding=padding,
+                    align=align,
+                    line_spacing=line_spacing,
+                    opacity=opacity
+                )
 
-            text_clip = ImageClip(text_array, duration=duration).with_start(start_time)
-            tpos = get_position(text_position, video_size, (text_array.shape[1], text_array.shape[0]))
-            text_clip = text_clip.with_position(tpos)
-            overlay_clips.append(text_clip)
+                # rotate text if needed
+                if rotation != 0:
+                    text_img = text_img.rotate(-rotation, expand=True, fillcolor=(0, 0, 0, 0))
+
+                text_array = np.array(text_img)
+
+                text_clip = ImageClip(text_array, duration=duration).with_start(start_time)
+                tpos = get_position(text_position, video_size, (text_array.shape[1], text_array.shape[0]))
+                text_clip = text_clip.with_position(tpos)
+                overlay_clips.append(text_clip)
 
     print(f"\nCompositing {len(overlay_clips)} overlays on video...")
     final_video = CompositeVideoClip([video] + overlay_clips)
@@ -456,7 +858,6 @@ def overlay_images_on_video(video_path, overlays, output_path):
         fps=video.fps,
         preset="medium",
         threads=4,
-        temp_audiofile=os.path.join('/tmp', 'temp_audio.m4a')
     )
 
     video.close()

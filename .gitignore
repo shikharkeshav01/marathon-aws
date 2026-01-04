@@ -4,6 +4,8 @@
 *.tfstate
 *.tfstate.backup
 
+.idea/
+
 # Lambda build artifacts
 *.zip
 __pycache__/
