@@ -1,5 +1,6 @@
 # start_job.py
 import os, json, time, boto3
+from datetime import datetime
 from boto3.dynamodb.conditions import Key
 
 
@@ -72,7 +73,8 @@ def main(event, context):
             "ReelS3Key": reel_s3_key,
             "ReelConfiguration": reel_configuration,
             "Status": "IN_PROGRESS",
-            "RequestType": "GENERATE_EVENT_REELS"
+            "RequestType": "GENERATE_EVENT_REELS",
+            "CreatedAt": datetime.utcnow().isoformat()
         }
 
     if not bib_id:
