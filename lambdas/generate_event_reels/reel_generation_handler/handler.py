@@ -1,5 +1,7 @@
 # processor.py
 import os, json, boto3, traceback, mimetypes
+from datetime import datetime
+
 from reel_generation import overlay_images_on_video
 from boto3.dynamodb.conditions import Key, Attr
 import uuid
@@ -125,19 +127,23 @@ def handler(event, context):
     image_s3_keys = event.get("imageS3Keys")
 
     # Get participant data for template variable substitution
-    participants = get_participants_from_db(event_id, bib_id)
-    if len(participants) == 0:
-        print(f"BibId {bib_id} not found in event {event_id}")
-        return {
+    if bib_id != -1:
+        participants = get_participants_from_db(event_id, bib_id)
+        if len(participants) == 0:
+            print(f"BibId {bib_id} not found in event {event_id}")
+            return {
             "eventId": event_id,
             "ok": False,
             "error": f"BibId {bib_id} not found in event {event_id}"
-        }
+            }
 
-    print("Participants: ", participants)
-
-    completion_time = participants[0].get("CompletionTime")
-    participants_name = participants[0].get("ParticipantName")
+        print("Participants: ", participants)
+        completion_time = participants[0].get("CompletionTime")
+        participants_name = participants[0].get("ParticipantName")
+    else:
+        print("Dummy bibId, using dummy values for completion time and participant name")
+        completion_time = "XXX"
+        participants_name = "XXX"
 
     # Download background video from S3
     print("Downloading background video")
@@ -213,7 +219,8 @@ def handler(event, context):
                 'BibId': str(bib_id),
                 'EventId': int(event_id),
                 'ReelPath': s3_output_key,
-                'RequestId': request_id
+                'RequestId': request_id,
+                'CreatedAt': datetime.utcnow().isoformat()
             }
         )
     except Exception as e:
