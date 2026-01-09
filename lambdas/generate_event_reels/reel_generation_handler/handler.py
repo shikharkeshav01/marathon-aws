@@ -6,7 +6,6 @@ from reel_generation import overlay_images_on_video
 from boto3.dynamodb.conditions import Key, Attr
 import uuid
 
-
 # DynamoDB (schema: EventId (N) PK, DriveUrl (S), Status (S))
 ddb = boto3.resource("dynamodb")
 
@@ -16,11 +15,11 @@ RAW_BUCKET = os.environ.get("RAW_BUCKET", "")
 
 
 def generate_reel_local(
-    video_path: str,
-    image_paths: list[str],
-    reel_config_json: str,
-    output_path: str,
-    template_vars: dict[str, str] | None = None
+        video_path: str,
+        image_paths: list[str],
+        reel_config_json: str,
+        output_path: str,
+        template_vars: dict[str, str] | None = None
 ) -> str:
     """
     Core reel generation logic that works with local files only.
@@ -91,13 +90,14 @@ def generate_reel_local(
 
 
 def get_images_from_db(event_id, bib_id):
-        table = ddb.Table(os.environ["EVENT_IMAGES_TABLE"])
-        response = table.query(
-            IndexName='EventId-index',
-            KeyConditionExpression=Key('EventId').eq(event_id),
-            FilterExpression=Attr('BibId').eq(str(bib_id))
-        )
-        return [item['Filename'] for item in response.get('Items', [])]
+    table = ddb.Table(os.environ["EVENT_IMAGES_TABLE"])
+    response = table.query(
+        IndexName='EventId-index',
+        KeyConditionExpression=Key('EventId').eq(event_id),
+        FilterExpression=Attr('BibId').eq(str(bib_id))
+    )
+    return [item['Filename'] for item in response.get('Items', [])]
+
 
 def get_participants_from_db(event_id, bib_id):
     table = ddb.Table(os.environ["EVENT_PARTICIPANTS_TABLE"])
@@ -105,6 +105,7 @@ def get_participants_from_db(event_id, bib_id):
         KeyConditionExpression=Key('EventId').eq(event_id) & Key('BibId').eq(bib_id)
     )
     return response.get('Items', [])
+
 
 def handler(event, context):
     """
@@ -127,14 +128,14 @@ def handler(event, context):
     image_s3_keys = event.get("imageS3Keys")
 
     # Get participant data for template variable substitution
-    if bib_id != -1:
+    if bib_id != "-1":
         participants = get_participants_from_db(event_id, bib_id)
         if len(participants) == 0:
             print(f"BibId {bib_id} not found in event {event_id}")
             return {
-            "eventId": event_id,
-            "ok": False,
-            "error": f"BibId {bib_id} not found in event {event_id}"
+                "eventId": event_id,
+                "ok": False,
+                "error": f"BibId {bib_id} not found in event {event_id}"
             }
 
         print("Participants: ", participants)
@@ -230,4 +231,4 @@ def handler(event, context):
     return {
         "eventId": str(event_id),
         "ok": True
-    }    
+    }
