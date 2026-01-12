@@ -1,0 +1,40 @@
+{
+  "Comment": "Generate event reels pipeline",
+  "StartAt": "PrepareImages",
+  "States": {
+    "PrepareImages": {
+      "Type": "Task",
+      "Resource": "${EVENT_IMAGES_BIB_EXTRACTION_HANDLER_ARN}",
+      "Next": "GenerateReelsMap"
+    },
+    "GenerateReelsMap": {
+      "Type": "Map",
+      "ItemsPath": "$.bibIds",
+      "ResultPath": null,
+      "ItemSelector": {
+        "requestId.$": "$.requestId",
+        "eventId.$": "$.eventId",
+        "reelS3Key.$": "$.reelS3Key",
+        "reelConfiguration.$": "$.reelConfiguration",
+        "bibId.$": "$$.Map.Item.Value",
+        "imageS3Keys.$": "$.imageS3Keys"
+      },
+      "Iterator": {
+        "StartAt": "GenerateReel",
+        "States": {
+          "GenerateReel": {
+            "Type": "Task",
+            "Resource": "${REEL_GENERATION_HANDLER_ARN}",
+            "End": true
+          }
+        }
+      },
+      "Next": "ReelGenerationComplete"
+    },
+    "ReelGenerationComplete": {
+      "Type": "Task",
+      "Resource": "${REEL_GENERATION_COMPLETION_HANDLER_ARN}",
+      "End": true
+    }
+  }
+}

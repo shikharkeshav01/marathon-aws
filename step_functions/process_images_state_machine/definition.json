@@ -1,0 +1,36 @@
+{
+  "Comment": "Process event images pipeline",
+  "StartAt": "ListImages",
+  "States": {
+    "ListImages": {
+      "Type": "Task",
+      "Resource": "${LIST_IMAGES_HANDLER_ARN}",
+      "Next": "ExtractBibMap"
+    },
+    "ExtractBibMap": {
+      "Type": "Map",
+      "ItemsPath": "$.items",
+      "ResultPath": null,
+      "Parameters": {
+        "eventId.$": "$.eventId",
+        "fileId.$": "$$.Map.Item.Value.fileId"
+      },
+      "Iterator": {
+        "StartAt": "ExtractBibNumber",
+        "States": {
+          "ExtractBibNumber": {
+            "Type": "Task",
+            "Resource": "${EXTRACT_BIB_NUMBER_HANDLER_ARN}",
+            "End": true
+          }
+        }
+      },
+      "Next": "ProcessingComplete"
+    },
+    "ProcessingComplete": {
+      "Type": "Task",
+      "Resource": "${IMAGE_PROCESSING_COMPLETION_HANDLER_ARN}",
+      "End": true
+    }
+  }
+}

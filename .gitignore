@@ -19,3 +19,4 @@ __pycache__/
 *.json
 !package.json
 !tsconfig.json
+!definition.json
