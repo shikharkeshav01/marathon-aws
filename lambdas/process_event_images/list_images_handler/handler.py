@@ -1,11 +1,13 @@
 # start_job.py
-import os, json, time, boto3
-from googleapiclient.discovery import build
-from google.oauth2 import service_account
-from boto3.dynamodb.conditions import Key
-import pandas as pd
-from decimal import Decimal, InvalidOperation
+import boto3
+import json
+import os
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
+
+import pandas as pd
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 
 
 def normalize_drive_id(raw: str) -> str:
@@ -24,11 +26,6 @@ def normalize_drive_id(raw: str) -> str:
 
     # fallback: last path segment
     return raw.rstrip("/").split("/")[-1]
-
-
-def file_view_url(file_id: str) -> str:
-    # Good “URL” for humans and for systems that just want an identifier URL
-    return f"https://drive.google.com/file/d/{file_id}/view"
 
 
 # DynamoDB
@@ -119,21 +116,28 @@ def handler(event, context):
         for f in res.get("files", []):
             fid = f["id"]
             image_items.append({
-                "fileId": fid,
-                "imageUrl": file_view_url(fid)
+                "fileId": fid
             })
 
         page_token = res.get("nextPageToken")
         if not page_token:
             break
 
-    # Output is shaped for a Step Functions Map state (ItemsPath -> $.items)
+    # Split items into chunks of 500 to avoid Step Functions 256KB limit
+    CHUNK_SIZE = 500
+    chunks = []
+    for i in range(0, len(image_items), CHUNK_SIZE):
+        chunk = image_items[i:i + CHUNK_SIZE]
+        chunks.append(chunk)
+
+    # Output is shaped for nested Map states (ItemsPath -> $.chunks)
     return {
         "requestId": request_id,
         "eventId": int(event_id),
         "driveFolderUrl": str(gdrive_folder_url),
-        "items": image_items,
-        "total": len(image_items)
+        "chunks": chunks,
+        "totalImages": len(image_items),
+        "totalChunks": len(chunks)
     }
 
 

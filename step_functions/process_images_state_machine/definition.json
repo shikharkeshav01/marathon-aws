@@ -1,26 +1,45 @@
 {
-  "Comment": "Process event images pipeline",
+  "Comment": "Process event images pipeline with nested Map States for chunked processing",
   "StartAt": "ListImages",
   "States": {
     "ListImages": {
       "Type": "Task",
       "Resource": "${LIST_IMAGES_HANDLER_ARN}",
-      "Next": "ExtractBibMap"
+      "Next": "ProcessChunks"
     },
-    "ExtractBibMap": {
+    "ProcessChunks": {
       "Type": "Map",
-      "ItemsPath": "$.items",
+      "ItemsPath": "$.chunks",
       "ResultPath": null,
+      "MaxConcurrency": 10,
       "Parameters": {
+        "chunk.$": "$$.Map.Item.Value",
         "eventId.$": "$.eventId",
-        "fileId.$": "$$.Map.Item.Value.fileId"
+        "requestId.$": "$.requestId"
       },
       "Iterator": {
-        "StartAt": "ExtractBibNumber",
+        "StartAt": "ProcessImages",
         "States": {
-          "ExtractBibNumber": {
-            "Type": "Task",
-            "Resource": "${EXTRACT_BIB_NUMBER_HANDLER_ARN}",
+          "ProcessImages": {
+            "Type": "Map",
+            "ItemsPath": "$.chunk",
+            "ResultPath": null,
+            "MaxConcurrency": 100,
+            "Parameters": {
+              "eventId.$": "$.eventId",
+              "fileId.$": "$$.Map.Item.Value.fileId",
+              "requestId.$": "$.requestId"
+            },
+            "Iterator": {
+              "StartAt": "ExtractBibNumber",
+              "States": {
+                "ExtractBibNumber": {
+                  "Type": "Task",
+                  "Resource": "${EXTRACT_BIB_NUMBER_HANDLER_ARN}",
+                  "End": true
+                }
+              }
+            },
             "End": true
           }
         }
