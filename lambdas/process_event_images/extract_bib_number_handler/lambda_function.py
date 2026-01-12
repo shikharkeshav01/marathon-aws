@@ -30,12 +30,8 @@ drive = build("drive", "v3", credentials=creds)
 def extract_bib_numbers(photo,event_id):
     try:
         bib_numbers = detect_and_tabulate_bibs_easyocr(photo, image_name="s3_object")
-        participants_table=ddb.Table(os.environ["EVENT_PARTICIPANTS_TABLE"])
-        bib_numbers = [bib for bib in bib_numbers if "Item" in participants_table.get_item(Key={"EventId": int(event_id), "BibId": str(bib)})]
-
     except Exception as exc:
         print("[ERROR] Failed to extract bib numbers:", exc)
-        bib_numbers = []
         raise exc
     return bib_numbers
 
@@ -93,6 +89,26 @@ def upload_file(s3_key, data):
     )
 
 
+def file_already_processed(filename, event_id):
+    """
+    Check if the file already exists in the ProcessedImages directory in S3.
+    Returns True if the file exists, False otherwise.
+    """
+    s3_key = f"{event_id}/ProcessedImages/{filename}"
+    try:
+        s3.head_object(Bucket=RAW_BUCKET, Key=s3_key)
+        print(f"File {filename} already processed (found at {s3_key})")
+        return True
+    except s3.exceptions.ClientError as e:
+        if e.response['Error']['Code'] == '404':
+            print(f"File {filename} not yet processed")
+            return False
+        else:
+            # Some other error occurred
+            print(f"Error checking if file exists: {e}")
+            raise
+
+
 def lambda_handler(event, context):
     
     print(json.dumps(event))
@@ -108,12 +124,14 @@ def lambda_handler(event, context):
     # 1) Download image
     filename, data, mime_type = download_file(file_id)
 
-    # 3) Determine file extension
-    ext = os.path.splitext(filename)[1]
-    if not ext:
-        ext = mimetypes.guess_extension(mime_type) or ""
+    # 2) Check if file already processed, if yes, return
+    if file_already_processed(filename, event_id):
+        return {
+            "eventId": str(event_id),
+            "ok": True
+        }
 
-    # 5) Run your processing/model here if needed
+    # 3) Run your processing/model here if needed
     try:
         print("Starting bib extraction...")
         bib_numbers = extract_bib_numbers(data,event_id)
@@ -138,20 +156,7 @@ def lambda_handler(event, context):
 
     return {
         "eventId": str(event_id),
-        # "fileId": str(file_id),
-        # "s3Bucket": RAW_BUCKET,
-        # "s3Key": s3_key,
         "ok": True
     }
-    # try:
-    #     return generateBibIds(event_id, file_id)
-    # except Exception as e:
-    #     print(f"Error: {e}")
-    #     return {
-    #         "eventId": event_id,
-            
-    #         "ok": False,
-    #         "error": str(e)
-    #     }
 
     
