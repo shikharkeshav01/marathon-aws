@@ -5,7 +5,6 @@ from google.oauth2 import service_account
 from bib_extraction import detect_and_tabulate_bibs_easyocr
 import uuid
 
-
 # DynamoDB (schema: EventId (N) PK, DriveUrl (S), Status (S))
 ddb = boto3.resource("dynamodb")
 # jobs = ddb.Table(os.environ["JOBS_TABLE"])
@@ -27,14 +26,16 @@ creds = service_account.Credentials.from_service_account_info(
 drive = build("drive", "v3", credentials=creds)
 
 
-def extract_bib_numbers(photo,event_id):
+def extract_bib_numbers(photo, event_id):
     try:
         bib_numbers = detect_and_tabulate_bibs_easyocr(photo, image_name="s3_object")
+        participants_table = ddb.Table(os.environ["EVENT_PARTICIPANTS_TABLE"])
+        bib_numbers = [bib for bib in bib_numbers if
+                       "Item" in participants_table.get_item(Key={"EventId": int(event_id), "BibId": str(bib)})]
     except Exception as exc:
         print("[ERROR] Failed to extract bib numbers:", exc)
         raise exc
     return bib_numbers
-
 
 
 def add_entry_to_db(event_id, filename, bib_numbers):
@@ -58,7 +59,6 @@ def add_entry_to_db(event_id, filename, bib_numbers):
             "Filename": filename
         }
         table.put_item(Item=item)
-        
 
 
 def download_file(file_id):
@@ -110,7 +110,6 @@ def file_already_processed(filename, event_id):
 
 
 def lambda_handler(event, context):
-    
     print(json.dumps(event))
     event_id = event.get("eventId")
     file_id = event.get("fileId")
@@ -120,7 +119,6 @@ def lambda_handler(event, context):
     if not file_id:
         raise ValueError("Missing fileId")
 
-    
     # 1) Download image
     filename, data, mime_type = download_file(file_id)
 
@@ -134,9 +132,9 @@ def lambda_handler(event, context):
     # 3) Run your processing/model here if needed
     try:
         print("Starting bib extraction...")
-        bib_numbers = extract_bib_numbers(data,event_id)
+        bib_numbers = extract_bib_numbers(data, event_id)
         print(f"Bib numbers found: {bib_numbers}")
-        
+
         if bib_numbers or len(bib_numbers) > 0:
             s3_key = f"{event_id}/ProcessedImages/{filename}"
         else:
@@ -144,19 +142,16 @@ def lambda_handler(event, context):
 
         # 4) Upload to S3
         upload_file(s3_key, data)
-        
+
         add_entry_to_db(event_id, filename, bib_numbers)
-    
+
     except Exception as exc:
         print(f"Exception encountered: {traceback.format_exc()}")
         s3_key = f"{event_id}/UnProcessedImages/{filename}"
         upload_file(s3_key, data)
         raise exc
 
-
     return {
         "eventId": str(event_id),
         "ok": True
     }
-
-    
