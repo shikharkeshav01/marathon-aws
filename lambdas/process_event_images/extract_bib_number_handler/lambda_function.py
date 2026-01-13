@@ -26,12 +26,18 @@ creds = service_account.Credentials.from_service_account_info(
 drive = build("drive", "v3", credentials=creds)
 
 
-def extract_bib_numbers(photo, event_id):
+def extract_bib_numbers(photo, event_id, filename):
     try:
         bib_numbers = detect_and_tabulate_bibs_easyocr(photo, image_name="s3_object")
         participants_table = ddb.Table(os.environ["EVENT_PARTICIPANTS_TABLE"])
-        bib_numbers = [bib for bib in bib_numbers if
-                       "Item" in participants_table.get_item(Key={"EventId": int(event_id), "BibId": str(bib)})]
+        validated_bibs = []
+        for bib in bib_numbers:
+            response = participants_table.get_item(Key={"EventId": int(event_id), "BibId": str(bib)})
+            if "Item" in response:
+                validated_bibs.append(bib)
+            else:
+                print(f"[WARN] File: {filename}, Bib number {bib} not found in DynamoDB for EventId {event_id}")
+        bib_numbers = validated_bibs
     except Exception as exc:
         print("[ERROR] Failed to extract bib numbers:", exc)
         raise exc
@@ -132,7 +138,7 @@ def lambda_handler(event, context):
     # 3) Run your processing/model here if needed
     try:
         print("Starting bib extraction...")
-        bib_numbers = extract_bib_numbers(data, event_id)
+        bib_numbers = extract_bib_numbers(data, event_id, filename)
         print(f"Bib numbers found: {bib_numbers}")
 
         if bib_numbers or len(bib_numbers) > 0:

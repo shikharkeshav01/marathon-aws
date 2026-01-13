@@ -1,5 +1,5 @@
 # processor.py
-import os, json, boto3, traceback, mimetypes
+import os, json, boto3, traceback, mimetypes, re, copy
 from datetime import datetime
 
 from reel_generation import overlay_images_on_video
@@ -14,12 +14,73 @@ s3 = boto3.client("s3")
 RAW_BUCKET = os.environ.get("RAW_BUCKET", "")
 
 
+def evaluate_template_text(text: str, template_vars: dict) -> str:
+    """
+    Evaluate template variables in text and filter out lines with missing/None values.
+    
+    Args:
+        text: Text containing ${varName} placeholders
+        template_vars: Dictionary of variable names to values
+    
+    Returns:
+        Text with variables substituted, lines with missing/None vars removed
+    """
+    lines = text.split('\n')
+    result_lines = []
+    
+    for line in lines:
+        # Find all ${varName} patterns in this line
+        var_pattern = r'\$\{(\w+)\}'
+        matches = re.findall(var_pattern, line)
+        
+        # Check if all variables in this line have valid values
+        skip_line = False
+        for var_name in matches:
+            value = template_vars.get(var_name)
+            if value is None:
+                skip_line = True
+                break
+        
+        if skip_line:
+            continue
+        
+        # Substitute all variables in the line
+        substituted_line = line
+        for var_name in matches:
+            value = template_vars.get(var_name, '')
+            substituted_line = substituted_line.replace(f'${{{var_name}}}', str(value))
+        
+        result_lines.append(substituted_line)
+    
+    return '\n'.join(result_lines)
+
+
+def process_reel_config(reel_config: dict, template_vars: dict) -> dict:
+    """
+    Process reel config and evaluate all text fields with template variables.
+    
+    Args:
+        reel_config: The reel configuration dictionary
+        template_vars: Dictionary of variable names to values
+    
+    Returns:
+        Processed reel config with evaluated text fields
+    """
+    config = copy.deepcopy(reel_config)
+    
+    if 'overlays' in config:
+        for overlay in config['overlays']:
+            if overlay.get('type') == 'text' and 'text' in overlay:
+                overlay['text'] = evaluate_template_text(overlay['text'], template_vars)
+    
+    return config
+
+
 def generate_reel_local(
         video_path: str,
         image_paths: list[str],
         reel_config_json: str,
-        output_path: str,
-        template_vars: dict[str, str] | None = None
+        output_path: str
 ) -> str:
     """
     Core reel generation logic that works with local files only.
@@ -29,8 +90,6 @@ def generate_reel_local(
         image_paths: List of paths to image files (local)
         reel_config_json: JSON string with reel configuration (overlays array)
         output_path: Where to save the generated video (local)
-        template_vars: Optional dict of template variable substitutions
-                      e.g., {"completionTime": "02:45:30", "participantsName": "John Doe"}
 
     Returns:
         Path to the generated video file
@@ -40,18 +99,11 @@ def generate_reel_local(
             video_path="/path/to/background.mp4",
             image_paths=["/path/to/img1.jpg", "/path/to/img2.jpg"],
             reel_config_json='{"overlays": [...]}',
-            output_path="/path/to/output.mp4",
-            template_vars={"participantsName": "John Doe", "completionTime": "02:30:15"}
+            output_path="/path/to/output.mp4"
         )
     """
-    # Apply template variable substitutions if provided
-    config_str = reel_config_json
-    if template_vars:
-        for key, value in template_vars.items():
-            config_str = config_str.replace(f"${{{key}}}", str(value))
-
     # Parse config
-    overlays = json.loads(config_str).get("overlays", [])
+    overlays = json.loads(reel_config_json).get("overlays", [])
 
     # Create a copy of image_paths to avoid modifying the input list
     available_images = image_paths.copy()
@@ -141,10 +193,12 @@ def handler(event, context):
         print("Participants: ", participants)
         completion_time = participants[0].get("CompletionTime")
         participants_name = participants[0].get("ParticipantName")
+        run_category = participants[0].get("TicketName")
     else:
         print("Dummy bibId, using dummy values for completion time and participant name")
         completion_time = "XXX"
         participants_name = "XXX"
+        run_category = "XXX"
 
     # Download background video from S3
     print("Downloading background video")
@@ -185,16 +239,22 @@ def handler(event, context):
     # Generate reel using core logic
     output_path = os.path.join("/tmp", f"{bib_id}.mp4")
 
+    template_vars = {
+        "completionTime": str(completion_time),
+        "runner": participants_name[:15],
+        "category": run_category,
+        "bibId": bib_id
+    }
+    
+    # Process reel config to evaluate template variables before passing
+    processed_config = process_reel_config(json.loads(reel_config), template_vars)
+    
     try:
         generate_reel_local(
             video_path=local_video_path,
             image_paths=local_image_paths,
-            reel_config_json=reel_config,
-            output_path=output_path,
-            template_vars={
-                "completionTime": str(completion_time),
-                "participantsName": participants_name
-            }
+            reel_config_json=json.dumps(processed_config),
+            output_path=output_path
         )
     except ValueError as e:
         print(f"Error generating reel: {e}")

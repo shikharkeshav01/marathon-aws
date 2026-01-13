@@ -13,7 +13,7 @@ Prerequisites:
 
 import json
 import os
-from handler import generate_reel_local
+from handler import generate_reel_local, process_reel_config
 
 
 def main():
@@ -31,7 +31,7 @@ def main():
         "overlays": [
             {
                 "type": "text",
-                "text": "Runner: ${participantsName}\nCategory: ${category}",
+                "text": "Bib No: ${bibId}\nRunner: ${runner}\nCompletion Time: ${completionTime}\nCategory: ${category}",
                 "start_time": 9.0,
                 "duration": 2.0,
                 "position": "center",
@@ -68,8 +68,10 @@ def main():
 
     # Template variables to substitute
     template_vars = {
-        "participantsName": "Jatin Sharma",
-        "category": "10K Fun Run"
+        "bibId": "123456",
+        "runner": "Jatin Sharmadasdasdasdasd"[:10],
+        "category": None,
+        "completionTime": "02:30:15"
     }
 
     # Validate files exist
@@ -93,12 +95,16 @@ def main():
     print()
 
     try:
+        # Process reel config to evaluate template variables before passing
+        processed_config = process_reel_config(reel_config, template_vars)
+        print(f"Processed config: {json.dumps(processed_config, indent=2)}")
+        print()
+        
         result_path = generate_reel_local(
             video_path=video_path,
             image_paths=image_paths,
-            reel_config_json=json.dumps(reel_config),
-            output_path=output_path,
-            template_vars=template_vars
+            reel_config_json=json.dumps(processed_config),
+            output_path=output_path
         )
         print(f"\n✓ Success! Reel generated at: {result_path}")
     except Exception as e:
