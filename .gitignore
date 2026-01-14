@@ -16,7 +16,7 @@ __pycache__/
 
 # Secrets
 .secrets/
-*.json
+sa.json
 !package.json
 !tsconfig.json
 !definition.json
