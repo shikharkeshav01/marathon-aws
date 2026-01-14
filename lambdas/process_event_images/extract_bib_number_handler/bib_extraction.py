@@ -55,8 +55,11 @@ def detect_and_tabulate_bibs_easyocr(
     print(f"[IMG] {image_name}")
 
     # Detect persons only
+    # Use save=False to prevent saving outputs, and project="/tmp" for any temp files
+    # This is necessary because Lambda's filesystem is read-only except for /tmp
     results = model.predict(
-        source=img, classes=[person_class_id], conf=conf_threshold, iou=0.5, verbose=False
+        source=img, classes=[person_class_id], conf=conf_threshold, iou=0.5, verbose=False,
+        save=False, project="/tmp"
     )
     bibs = set()
 
