@@ -44,7 +44,7 @@ RUN python preload_models.py
 # 4) Copy your function code
 COPY lambda_function.py ${LAMBDA_TASK_ROOT}/
 COPY bib_extraction.py ${LAMBDA_TASK_ROOT}/
-#COPY event.json ${LAMBDA_TASK_ROOT}/
+COPY event.json ${LAMBDA_TASK_ROOT}/
 # Note: yolov8n.pt will be downloaded automatically if not present, but it's preloaded above
 # 5) Set the handler (module.function)
 CMD ["lambda_function.lambda_handler"]
