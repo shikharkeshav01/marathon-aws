@@ -277,26 +277,26 @@ def detect_and_tabulate_bibs_easyocr(
     )
 
 
-def main():
-    """Example usage with configurable models."""
-    # Can be set via environment variables
-    detection = os.environ.get("DETECTION_MODEL", "yolov10n")
-    ocr = os.environ.get("OCR_MODEL", "easyocr")
-    os.environ.setdefault("DISABLE_MODEL_SOURCE_CHECK", "True")
-
-    detection_model = DetectionModel(detection)
-    ocr_model = OCRModel(ocr)
-
-    with open("/Users/sunny/Downloads/SUN_6385.jpg", "rb") as f:
-        photo_bytes = f.read()
-        bib_numbers = detect_and_extract_bibs(
-            photo_bytes,
-            image_name="SUN_6385.jpg",
-            detection_model=detection_model,
-            ocr_model=ocr_model
-        )
-        print(f"Detected bib numbers: {bib_numbers}")
-
-
-if __name__ == "__main__":
-    main()
+# def main():
+#     """Example usage with configurable models."""
+#     # Can be set via environment variables
+#     detection = os.environ.get("DETECTION_MODEL", "yolov10n")
+#     ocr = os.environ.get("OCR_MODEL", "easyocr")
+#     os.environ.setdefault("DISABLE_MODEL_SOURCE_CHECK", "True")
+#
+#     detection_model = DetectionModel(detection)
+#     ocr_model = OCRModel(ocr)
+#
+#     with open("/Users/sunny/Downloads/SUN_7546.jpg", "rb") as f:
+#         photo_bytes = f.read()
+#         bib_numbers = detect_and_extract_bibs(
+#             photo_bytes,
+#             image_name="SUN_7546.jpg",
+#             detection_model=detection_model,
+#             ocr_model=ocr_model
+#         )
+#         print(f"Detected bib numbers: {bib_numbers}")
+#
+#
+# if __name__ == "__main__":
+#     main()
