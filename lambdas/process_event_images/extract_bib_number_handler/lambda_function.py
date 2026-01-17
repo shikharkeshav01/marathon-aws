@@ -2,8 +2,12 @@
 import os, json, boto3, traceback, mimetypes
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
-from bib_extraction import detect_and_tabulate_bibs_easyocr
+from bib_extraction import detect_and_extract_bibs, DetectionModel, OCRModel
 import uuid
+
+# Model configuration from environment variables
+DETECTION_MODEL = DetectionModel(os.environ.get("DETECTION_MODEL", "yolov10n"))
+OCR_MODEL = OCRModel(os.environ.get("OCR_MODEL", "easyocr"))
 
 # DynamoDB (schema: EventId (N) PK, DriveUrl (S), Status (S))
 ddb = boto3.resource("dynamodb")
@@ -28,13 +32,35 @@ drive = build("drive", "v3", credentials=creds)
 
 def extract_bib_numbers(photo, event_id, filename):
     try:
-        bib_numbers = detect_and_tabulate_bibs_easyocr(photo, image_name="s3_object")
+        bib_numbers = detect_and_extract_bibs(
+            photo,
+            image_name=filename,
+            detection_model=DETECTION_MODEL,
+            ocr_model=OCR_MODEL
+        )
         participants_table = ddb.Table(os.environ["EVENT_PARTICIPANTS_TABLE"])
         validated_bibs = []
         for bib in bib_numbers:
-            response = participants_table.get_item(Key={"EventId": int(event_id), "BibId": str(bib)})
-            if "Item" in response:
-                validated_bibs.append(bib)
+            # Try exact match first, then variations (OCR sometimes adds extra digits)
+            candidates = [
+                bib,           # exact match
+                bib[:-1],      # trim last digit (e.g., 211568 -> 21156)
+                bib[1:],       # trim first digit
+            ]
+            # Filter out empty or too-short candidates
+            candidates = [c for c in candidates if len(c) >= 2]
+
+            matched_bib = None
+            for candidate in candidates:
+                response = participants_table.get_item(Key={"EventId": int(event_id), "BibId": str(candidate)})
+                if "Item" in response:
+                    matched_bib = candidate
+                    break
+
+            if matched_bib:
+                validated_bibs.append(matched_bib)
+                if matched_bib != bib:
+                    print(f"[INFO] File: {filename}, OCR read '{bib}' but matched as '{matched_bib}'")
             else:
                 print(f"[WARN] File: {filename}, Bib number {bib} not found in DynamoDB for EventId {event_id}")
         bib_numbers = validated_bibs

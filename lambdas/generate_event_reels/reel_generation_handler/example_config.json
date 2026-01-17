@@ -1,0 +1,87 @@
+{
+  "overlays": [
+    {
+      "type": "image",
+      "start_time": 1.0,
+      "duration": 4.0,
+      "position": "top-left",
+      "scale": 0.3,
+      "rotation": 0,
+      "opacity": 1.0
+    },
+    {
+      "type": "text",
+      "text": "Marathon Runner",
+      "start_time": 1.0,
+      "duration": 4.0,
+      "position": "top",
+      "text_style": {
+        "font_size": 64,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width": 4,
+        "padding": 20,
+        "align": "center"
+      }
+    },
+    {
+      "type": "text",
+      "text": "${participantsName}",
+      "start_time": 1.0,
+      "duration": 4.0,
+      "position": {
+        "x": 0.5,
+        "y": 0.25
+      },
+      "text_style": {
+        "font_size": 72,
+        "color": "#FFD700",
+        "stroke_color": "#000000",
+        "stroke_width": 5,
+        "padding": 15,
+        "align": "center"
+      }
+    },
+    {
+      "type": "image",
+      "start_time": 6.0,
+      "duration": 5.0,
+      "position": "center",
+      "scale": 0.6,
+      "rotation": 0,
+      "opacity": 1.0
+    },
+    {
+      "type": "text",
+      "text": "Finish Time\n${completionTime}",
+      "start_time": 6.0,
+      "duration": 5.0,
+      "position": "bottom",
+      "text_style": {
+        "font_size": 56,
+        "color": "#00FF00",
+        "stroke_color": "#000000",
+        "stroke_width": 3,
+        "bg_color": "#00000088",
+        "padding": 25,
+        "align": "center",
+        "line_spacing": 10
+      }
+    },
+    {
+      "type": "text",
+      "text": "Congratulations!",
+      "start_time": 12.0,
+      "duration": 3.0,
+      "position": "center",
+      "text_style": {
+        "font_size": 80,
+        "color": "#FF69B4",
+        "stroke_color": "#FFFFFF",
+        "stroke_width": 6,
+        "padding": 30,
+        "align": "center"
+      }
+    }
+  ]
+}

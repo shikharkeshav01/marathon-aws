@@ -1,0 +1,84 @@
+{
+  "overlays": [
+    {
+      "type": "text",
+      "text": "Example: Black gradient (top to bottom, fading to transparent)",
+      "start_time": 1.0,
+      "duration": 3.0,
+      "position": "top",
+      "text_style": {
+        "font_size": 36,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width": 2,
+        "bg_gradient": {
+          "start": "#000000DD",
+          "end": "#00000000",
+          "direction": "vertical"
+        },
+        "padding": 20,
+        "align": "center"
+      }
+    },
+    {
+      "type": "text",
+      "text": "Example: Solid black gradient (opaque to semi-transparent)",
+      "start_time": 5.0,
+      "duration": 3.0,
+      "position": "center",
+      "text_style": {
+        "font_size": 42,
+        "color": "#FFFF00",
+        "stroke_color": "#000000",
+        "stroke_width": 3,
+        "bg_gradient": {
+          "start": "#000000FF",
+          "end": "#00000088",
+          "direction": "vertical"
+        },
+        "padding": 25,
+        "align": "center"
+      }
+    },
+    {
+      "type": "text",
+      "text": "Example: Horizontal gradient (left to right)",
+      "start_time": 9.0,
+      "duration": 3.0,
+      "position": "bottom",
+      "text_style": {
+        "font_size": 40,
+        "color": "#00FFFF",
+        "stroke_color": "#000000",
+        "stroke_width": 2,
+        "bg_gradient": {
+          "start": "#000000CC",
+          "end": "#00000000",
+          "direction": "horizontal"
+        },
+        "padding": 20,
+        "align": "center"
+      }
+    },
+    {
+      "type": "text",
+      "text": "Example: Dark gradient with colored text",
+      "start_time": 13.0,
+      "duration": 3.0,
+      "position": "center",
+      "text_style": {
+        "font_size": 48,
+        "color": "#FF69B4",
+        "stroke_color": "#FFFFFF",
+        "stroke_width": 3,
+        "bg_gradient": {
+          "start": "#1a1a1aFF",
+          "end": "#00000000",
+          "direction": "vertical"
+        },
+        "padding": 30,
+        "align": "center"
+      }
+    }
+  ]
+}
