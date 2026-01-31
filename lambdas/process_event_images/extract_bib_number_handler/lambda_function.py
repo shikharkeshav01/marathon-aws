@@ -3,6 +3,7 @@ import os, json, boto3, traceback, mimetypes
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 from bib_extraction import detect_and_extract_bibs, DetectionModel, OCRModel
+from face_matching import match_faces_to_participants
 import uuid
 
 # Model configuration from environment variables
@@ -64,13 +65,29 @@ def extract_bib_numbers(photo, event_id, filename):
             else:
                 print(f"[WARN] File: {filename}, Bib number {bib} not found in DynamoDB for EventId {event_id}")
         bib_numbers = validated_bibs
+        
+        # Fallback to face matching if no bib numbers found
+        if not bib_numbers or len(bib_numbers) == 0:
+            print(f"[FALLBACK] No bib numbers found in {filename}, attempting face matching...")
+            matched_participants = match_faces_to_participants(photo, event_id)
+            
+            if matched_participants:
+                # Extract bib IDs from matched participants
+                face_matched_bibs = [p['bib_id'] for p in matched_participants if p.get('bib_id')]
+                print(f"[SUCCESS] Face matching found {len(face_matched_bibs)} participants: {face_matched_bibs}")
+                return face_matched_bibs, 'face'
+            else:
+                print(f"[INFO] No face matches found for {filename}")
+                return [], 'none'
+        
+        return bib_numbers, 'bib'
+        
     except Exception as exc:
         print("[ERROR] Failed to extract bib numbers:", exc)
         raise exc
-    return bib_numbers
 
 
-def add_entry_to_db(event_id, filename, bib_numbers):
+def add_entry_to_db(event_id, filename, bib_numbers, match_type='bib'):
     """
     Insert a record into DynamoDB for each bib number found in an image.
     Schema:
@@ -78,17 +95,19 @@ def add_entry_to_db(event_id, filename, bib_numbers):
       BibId       (String)
       EventId     number
       Filename    (String)
+      MatchType   (String) - 'bib' or 'face'
     """
     table_name = os.environ["EVENT_IMAGES_TABLE"]
     table = ddb.Table(table_name)
-    print(f"Writing {len(bib_numbers)} items to table {table_name} for {filename}")
+    print(f"Writing {len(bib_numbers)} items to table {table_name} for {filename} (match_type={match_type})")
     for bib_id in bib_numbers:
         event_image_id = str(uuid.uuid4())
         item = {
             "Id": event_image_id,
             "BibId": str(bib_id),
             "EventId": int(event_id),
-            "Filename": filename
+            "Filename": filename,
+            "MatchType": match_type
         }
         table.put_item(Item=item)
 
@@ -164,10 +183,18 @@ def lambda_handler(event, context):
     # 3) Run your processing/model here if needed
     try:
         print("Starting bib extraction...")
-        bib_numbers = extract_bib_numbers(data, event_id, filename)
-        print(f"Bib numbers found: {bib_numbers}")
+        result = extract_bib_numbers(data, event_id, filename)
+        
+        # Handle tuple return (bib_numbers, match_type) or legacy list return
+        if isinstance(result, tuple):
+            bib_numbers, match_type = result
+        else:
+            bib_numbers = result
+            match_type = 'bib'
+        
+        print(f"Match type: {match_type}, Bib numbers found: {bib_numbers}")
 
-        if bib_numbers or len(bib_numbers) > 0:
+        if bib_numbers and len(bib_numbers) > 0:
             s3_key = f"{event_id}/ProcessedImages/{filename}"
         else:
             s3_key = f"{event_id}/UnProcessedImages/{filename}"
@@ -175,7 +202,7 @@ def lambda_handler(event, context):
         # 4) Upload to S3
         upload_file(s3_key, data)
 
-        add_entry_to_db(event_id, filename, bib_numbers)
+        add_entry_to_db(event_id, filename, bib_numbers, match_type)
 
     except Exception as exc:
         print(f"Exception encountered: {traceback.format_exc()}")
