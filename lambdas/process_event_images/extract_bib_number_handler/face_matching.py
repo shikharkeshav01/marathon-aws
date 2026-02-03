@@ -60,58 +60,98 @@ def match_faces_to_participants(image_bytes: bytes, event_id: int) -> List[Dict]
             MaxFaces=MAX_FACES,
             FaceMatchThreshold=FACE_MATCH_THRESHOLD
         )
-        
+
+        # Log detected face in the search image
+        searched_face = response.get('SearchedFace', {})
+        if searched_face:
+            searched_face_bbox = response.get('SearchedFaceBoundingBox', {})
+            searched_face_confidence = response.get('SearchedFaceConfidence', 'N/A')
+            print(f"[DETECTED_FACE] Face detected in image: BoundingBox={searched_face_bbox}, Confidence={searched_face_confidence}")
+
         matched_participants = []
         face_matches = response.get('FaceMatches', [])
-        
+
         print(f"[REKOGNITION] Found {len(face_matches)} face matches above {FACE_MATCH_THRESHOLD}% threshold")
-        
+
         if not face_matches:
             print("[INFO] No face matches found in collection")
             return []
-        
-        participants_table = ddb.Table(os.environ['EVENT_PARTICIPANTS_TABLE'])
-        
-        for match_result in face_matches:
+
+        # Log all face matches with details
+        print("[FACE_MATCHES] Details of all matched faces:")
+        for idx, match_result in enumerate(face_matches, 1):
             face = match_result['Face']
-            external_image_id = face.get('ExternalImageId')  # This is the email
+            face_id = face.get('FaceId')
+            external_id = face.get('ExternalImageId', 'N/A')
             similarity = match_result['Similarity']
-            
+            confidence = face.get('Confidence', 'N/A')
+            print(f"  Face {idx}: FaceId={face_id}, ExternalImageId={external_id}, Similarity={similarity:.2f}%, Confidence={confidence}")
+
+        participants_table = ddb.Table(os.environ['EVENT_PARTICIPANTS_TABLE'])
+
+        for idx, match_result in enumerate(face_matches, 1):
+            face = match_result['Face']
+            face_id = face.get('FaceId')
+            external_image_id = face.get('ExternalImageId')  # This is the escaped email
+            similarity = match_result['Similarity']
+
+            print(f"\n[PROCESSING] Face {idx}/{len(face_matches)}: FaceId={face_id}")
+
             if not external_image_id:
-                print(f"[WARN] Face {face.get('FaceId')} has no ExternalImageId, skipping")
+                print(f"[WARN] Face {face_id} has no ExternalImageId, skipping")
                 continue
-            
-            print(f"[MATCH] Face matched to email={external_image_id}, similarity={similarity:.2f}%")
-            
-            # Verify this email is registered for this event
+
+            # Unescape the email: undo the transformation from index_user_profile_image
+            # Original: email.replace('@', '__').replace('+', '_')
+            # Reverse: Replace __ with @
+            # Note: We don't reverse _ to + because we can't distinguish between
+            # original underscores and escaped plus signs. Emails with + are rare.
+            actual_email = external_image_id.replace('__', '@')
+
+            print(f"[MATCH] Face matched to external_id={external_image_id}, email={actual_email}, similarity={similarity:.2f}%")
+
+            # Query participant by EventId and Email using GSI
             try:
-                response = participants_table.get_item(
-                    Key={
-                        'EventId': int(event_id),
-                        'Email': external_image_id
+                print(f"[QUERY] Querying EventId={event_id}, Email={actual_email} using EventId-Email-index")
+                response = participants_table.query(
+                    IndexName='EventId-Email-index',
+                    KeyConditionExpression='EventId = :event_id AND Email = :email',
+                    ExpressionAttributeValues={
+                        ':event_id': int(event_id),
+                        ':email': actual_email
                     }
                 )
-                
-                if 'Item' in response:
-                    participant = response['Item']
+
+                items = response.get('Items', [])
+                print(f"[QUERY_RESULT] Found {len(items)} participant(s) for email {actual_email}")
+
+                if items:
+                    participant = items[0]  # Should only be one match
                     bib_id = participant.get('BibId')
-                    
+                    participant_name = participant.get('ParticipantName', 'N/A')
+
                     matched_participants.append({
-                        'email': external_image_id,
+                        'email': actual_email,
                         'bib_id': bib_id,
                         'similarity': similarity,
                         'client_id': participant.get('ClientId')
                     })
-                    print(f"[SUCCESS] Participant validated: email={external_image_id}, bib={bib_id}")
+                    print(f"[SUCCESS] Participant validated: FaceId={face_id}, Email={actual_email}, BibId={bib_id}, Name={participant_name}, Similarity={similarity:.2f}%")
                 else:
-                    print(f"[WARN] Email {external_image_id} not registered for EventId {event_id}")
-                    
+                    print(f"[WARN] Email {actual_email} not registered for EventId {event_id}")
+
             except Exception as e:
-                print(f"[ERROR] Failed to query participant {external_image_id}: {e}")
+                print(f"[ERROR] Failed to query participant {actual_email}: {e}")
+                import traceback
+                print(f"[ERROR] Traceback: {traceback.format_exc()}")
                 continue
-        
+
+        print(f"\n[SUMMARY] Total matched participants: {len(matched_participants)}")
+        for idx, match in enumerate(matched_participants, 1):
+            print(f"  Match {idx}: BibId={match['bib_id']}, Email={match['email']}, Similarity={match['similarity']:.2f}%")
+
         return matched_participants
-        
+
     except rekognition.exceptions.InvalidParameterException as e:
         print(f"[INFO] No faces detected in image: {e}")
         return []
