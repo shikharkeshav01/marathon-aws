@@ -1,11 +1,11 @@
 # start_job.py
 import boto3
+import csv
 import json
 import os
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
-import pandas as pd
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
@@ -74,34 +74,36 @@ def handler(event, context):
     local_csv_path="/tmp/participants.csv"
     s3.download_file(RAW_BUCKET, csv_key, local_csv_path)
 
-    # Read CSV file with pandas and store participants in DynamoDB
-    df = pd.read_csv(local_csv_path)
-    
-    # Store each participant in EventParticipants table
-    for _, row in df.iterrows():
-        try:
-            # Convert Completion Time to float if it exists, otherwise None
-            completion_time = None
-            if pd.notna(row.get("Completion Time")):
-                try:
-                    completion_time = Decimal(str(row["Completion Time"]))
-                except (InvalidOperation, ValueError, TypeError):
-                    completion_time = None
-            
-            participants_table.put_item(
-                Item={
-                    "EventId": int(event_id),  # Partition Key
-                    "BibId": str(row["Bib No"]),  # Sort Key
-                    "ParticipantName": str(row["Participant Name"]),
-                    "TicketName": str(row["Ticket Name"]),
-                    "Phone": str(row["Phone"]),
-                    "Email": str(row["Email"]),
-                    "CompletionTime": completion_time
-                }
-            )
-        except Exception as e:
-            print(f"Error storing participant {row.get('Bib No', 'unknown')}: {e}")
-            raise e
+    # Read CSV file with built-in csv module and store participants in DynamoDB
+    with open(local_csv_path, 'r', encoding='utf-8') as csvfile:
+        reader = csv.DictReader(csvfile)
+
+        # Store each participant in EventParticipants table
+        for row in reader:
+            try:
+                # Convert Completion Time to Decimal if it exists, otherwise None
+                completion_time = None
+                completion_time_str = row.get("Completion Time", "").strip()
+                if completion_time_str:
+                    try:
+                        completion_time = Decimal(completion_time_str)
+                    except (InvalidOperation, ValueError, TypeError):
+                        completion_time = None
+
+                participants_table.put_item(
+                    Item={
+                        "EventId": int(event_id),  # Partition Key
+                        "BibId": str(row["Bib No"]),  # Sort Key
+                        "ParticipantName": str(row["Participant Name"]),
+                        "TicketName": str(row["Ticket Name"]),
+                        "Phone": str(row["Phone"]),
+                        "Email": str(row["Email"]),
+                        "CompletionTime": completion_time
+                    }
+                )
+            except Exception as e:
+                print(f"Error storing participant {row.get('Bib No', 'unknown')}: {e}")
+                raise e
 
     # List images in the folder and return URLs for Step Functions Map
     image_items = []

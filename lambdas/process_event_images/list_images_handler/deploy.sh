@@ -198,12 +198,18 @@ wait_for_lambda_ready() {
 if aws lambda get-function --function-name "${LAMBDA_NAME}" --region "${REGION}" >/dev/null 2>&1; then
   echo >&2 "Updating ${LAMBDA_NAME}..."
   wait_for_lambda_ready "${LAMBDA_NAME}"
+  # First remove any layers to avoid size limit issues
+  echo >&2 "  Removing layers..."
+  aws lambda update-function-configuration --function-name "${LAMBDA_NAME}" --layers --region "${REGION}" >/dev/null 2>&1 || true
+  wait_for_lambda_ready "${LAMBDA_NAME}"
+  # Then update the code
   aws lambda update-function-code --function-name "${LAMBDA_NAME}" --zip-file "fileb://${ZIP_FILE}" --region "${REGION}" >/dev/null
   wait_for_lambda_ready "${LAMBDA_NAME}"
-  aws lambda update-function-configuration --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --runtime "${RUNTIME}" --handler handler.handler --environment "${env_json}" --layers "arn:aws:lambda:ap-south-1:336392948345:layer:AWSSDKPandas-Python313:5" --region "${REGION}" >/dev/null
+  # Finally update other configuration
+  aws lambda update-function-configuration --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --runtime "${RUNTIME}" --handler handler.handler --environment "${env_json}" --region "${REGION}" >/dev/null
 else
   echo >&2 "Creating ${LAMBDA_NAME}..."
-  aws lambda create-function --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --runtime "${RUNTIME}" --handler handler.handler --zip-file "fileb://${ZIP_FILE}" --environment "${env_json}" --layers "arn:aws:lambda:ap-south-1:336392948345:layer:AWSSDKPandas-Python313:5" --region "${REGION}" >/dev/null
+  aws lambda create-function --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --runtime "${RUNTIME}" --handler handler.handler --zip-file "fileb://${ZIP_FILE}" --environment "${env_json}" --region "${REGION}" >/dev/null
 fi
 
 # Get Lambda ARN
