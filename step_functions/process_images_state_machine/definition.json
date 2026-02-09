@@ -15,7 +15,8 @@
       "Parameters": {
         "chunk.$": "$$.Map.Item.Value",
         "eventId.$": "$.eventId",
-        "requestId.$": "$.requestId"
+        "requestId.$": "$.requestId",
+        "enableFaceMatching.$": "$.enableFaceMatching"
       },
       "Iterator": {
         "StartAt": "ProcessImages",
@@ -28,7 +29,8 @@
             "Parameters": {
               "eventId.$": "$.eventId",
               "fileId.$": "$$.Map.Item.Value.fileId",
-              "requestId.$": "$.requestId"
+              "requestId.$": "$.requestId",
+              "enableFaceMatching.$": "$.enableFaceMatching"
             },
             "Iterator": {
               "StartAt": "ExtractBibNumber",

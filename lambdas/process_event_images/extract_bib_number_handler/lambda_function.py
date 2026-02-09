@@ -31,7 +31,7 @@ creds = service_account.Credentials.from_service_account_info(
 drive = build("drive", "v3", credentials=creds)
 
 
-def extract_bib_numbers(photo, event_id, filename):
+def extract_bib_numbers(photo, event_id, filename, enable_face_matching=False):
     try:
         bib_numbers = detect_and_extract_bibs(
             photo,
@@ -66,8 +66,8 @@ def extract_bib_numbers(photo, event_id, filename):
                 print(f"[WARN] File: {filename}, Bib number {bib} not found in DynamoDB for EventId {event_id}")
         bib_numbers = validated_bibs
         
-        # Fallback to face matching if no bib numbers found
-        if not bib_numbers or len(bib_numbers) == 0:
+        # Fallback to face matching if no bib numbers found and face matching is enabled
+        if enable_face_matching and (not bib_numbers or len(bib_numbers) == 0):
             print(f"[FALLBACK] No bib numbers found in {filename}, attempting face matching...")
             matched_participants = match_faces_to_participants(photo, event_id)
             
@@ -164,6 +164,7 @@ def lambda_handler(event, context):
     print(json.dumps(event))
     event_id = event.get("eventId")
     file_id = event.get("fileId")
+    enable_face_matching = event.get("enableFaceMatching", False)
 
     if event_id is None:
         raise ValueError("Missing eventId")
@@ -182,8 +183,8 @@ def lambda_handler(event, context):
 
     # 3) Run your processing/model here if needed
     try:
-        print("Starting bib extraction...")
-        result = extract_bib_numbers(data, event_id, filename)
+        print(f"Starting bib extraction (face matching: {enable_face_matching})...")
+        result = extract_bib_numbers(data, event_id, filename, enable_face_matching)
         
         # Handle tuple return (bib_numbers, match_type) or legacy list return
         if isinstance(result, tuple):

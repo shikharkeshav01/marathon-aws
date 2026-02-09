@@ -56,6 +56,7 @@ def handler(event, context):
     event_id = event.get("eventId")
     gdrive_folder_url = event.get("gdriveFolderUrl")
     csv_key= event.get("csvKey")
+    enable_face_matching = event.get("enableFaceMatching", False)
     folder_id = normalize_drive_id(gdrive_folder_url)
 
     # Save minimal record in DynamoDB
@@ -137,7 +138,8 @@ def handler(event, context):
         "driveFolderUrl": str(gdrive_folder_url),
         "chunks": chunks,
         "totalImages": len(image_items),
-        "totalChunks": len(chunks)
+        "totalChunks": len(chunks),
+        "enableFaceMatching": enable_face_matching
     }
 
 
