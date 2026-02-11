@@ -160,8 +160,21 @@ rsync -av --exclude='deploy.sh' "${SCRIPT_DIR}/" "${TMP_DIR}/" >/dev/null 2>&1 |
   find "${SCRIPT_DIR}" -mindepth 1 -maxdepth 1 ! -name 'deploy.sh' -exec cp -R {} "${TMP_DIR}/" \;
 }
 if [[ -f "${SCRIPT_DIR}/requirements.txt" ]]; then
-  echo >&2 "  Installing dependencies..."
-  python3 -m pip install -r "${SCRIPT_DIR}/requirements.txt" -t "${TMP_DIR}" >/dev/null 2>&1
+  echo >&2 "  Installing dependencies for x86_64 architecture..."
+  # Use Docker to install dependencies for the correct architecture
+  if command -v docker >/dev/null 2>&1; then
+    docker run --rm --platform linux/amd64 \
+      --entrypoint /bin/bash \
+      -v "${SCRIPT_DIR}/requirements.txt:/tmp/requirements.txt:ro" \
+      -v "${TMP_DIR}:/tmp/package" \
+      public.ecr.aws/lambda/python:3.13 \
+      -c "pip install -r /tmp/requirements.txt -t /tmp/package --no-cache-dir" >/dev/null 2>&1
+  else
+    # Fallback to local pip (may have architecture issues on arm64 Macs)
+    echo >&2 "  Warning: Docker not found, using local pip (may cause architecture mismatch)"
+    python3 -m pip install -r "${SCRIPT_DIR}/requirements.txt" -t "${TMP_DIR}" --platform manylinux2014_x86_64 --only-binary=:all: --no-cache-dir >/dev/null 2>&1 || \
+    python3 -m pip install -r "${SCRIPT_DIR}/requirements.txt" -t "${TMP_DIR}" >/dev/null 2>&1
+  fi
 fi
 ZIP_FILE="${SCRIPT_DIR}/../list_images_handler.zip"
 (cd "${TMP_DIR}" && zip -r "${ZIP_FILE}" . >/dev/null)
