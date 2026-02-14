@@ -3,6 +3,8 @@ from moviepy.video.VideoClip import VideoClip
 import numpy as np
 import os
 import subprocess
+import urllib.request
+import hashlib
 from PIL import Image, ImageDraw, ImageFont
 
 def _parse_hex_color(color):
@@ -21,7 +23,95 @@ def _parse_hex_color(color):
         return (r, g, b, a)
     raise ValueError(f"Unsupported color format: {color}")
 
+def _download_font(font_name_or_url, cache_dir="/tmp/fonts"):
+    """
+    Download a font from a URL or Google Fonts.
+
+    Args:
+        font_name_or_url: Either a Google Font name (e.g., "Roboto") or a direct URL to a .ttf file
+        cache_dir: Directory to cache downloaded fonts
+
+    Returns:
+        Path to the downloaded font file, or None if download failed
+
+    Examples:
+        _download_font("Roboto")  # Downloads from Google Fonts
+        _download_font("https://example.com/myfont.ttf")  # Direct URL
+    """
+    # Create cache directory if it doesn't exist
+    os.makedirs(cache_dir, exist_ok=True)
+
+    # Determine if it's a URL or a font name
+    if font_name_or_url.startswith("http://") or font_name_or_url.startswith("https://"):
+        # Direct URL
+        font_url = font_name_or_url
+        # Create a hash-based filename to avoid conflicts
+        url_hash = hashlib.md5(font_url.encode()).hexdigest()[:8]
+        font_filename = f"font_{url_hash}.ttf"
+    else:
+        # Assume it's a Google Font name
+        # Google Fonts API v1 - get the font file URL
+        font_name = font_name_or_url.replace(" ", "+")
+        api_url = f"https://fonts.googleapis.com/css?family={font_name}"
+
+        try:
+            # Fetch the CSS file which contains the actual font URL
+            with urllib.request.urlopen(api_url) as response:
+                css_content = response.read().decode('utf-8')
+
+            # Extract the .ttf URL from the CSS (look for url() directive)
+            # The CSS contains something like: src: url(https://fonts.gstatic.com/...) format('truetype');
+            import re
+            url_match = re.search(r'url\((https://[^)]+\.ttf)\)', css_content)
+            if not url_match:
+                # Try woff2 format if ttf not found
+                url_match = re.search(r'url\((https://[^)]+\.woff2?)\)', css_content)
+
+            if not url_match:
+                print(f"Could not find font URL in Google Fonts CSS for '{font_name_or_url}'")
+                return None
+
+            font_url = url_match.group(1)
+            font_filename = f"{font_name_or_url.replace(' ', '_')}.ttf"
+        except Exception as e:
+            print(f"Error fetching Google Font '{font_name_or_url}': {e}")
+            return None
+
+    # Check if already cached
+    cached_path = os.path.join(cache_dir, font_filename)
+    if os.path.exists(cached_path):
+        print(f"Using cached font: {cached_path}")
+        return cached_path
+
+    # Download the font
+    try:
+        print(f"Downloading font from: {font_url}")
+        urllib.request.urlretrieve(font_url, cached_path)
+        print(f"Font downloaded to: {cached_path}")
+        return cached_path
+    except Exception as e:
+        print(f"Error downloading font from '{font_url}': {e}")
+        return None
+
 def _load_font(font_name_or_path, font_size):
+    """
+    Load a font, with support for:
+    1. Direct file paths
+    2. System fonts
+    3. Google Fonts (downloaded at runtime)
+    4. Direct URLs to font files
+
+    Args:
+        font_name_or_path: Can be:
+            - A file path (e.g., "/path/to/font.ttf")
+            - A font name (e.g., "Arial", "DejaVuSans.ttf")
+            - A Google Font name (e.g., "Roboto", "Open Sans")
+            - A URL to a font file (e.g., "https://example.com/font.ttf")
+        font_size: Font size in points
+
+    Returns:
+        ImageFont object
+    """
     # If a direct path is given and exists, use it
     if font_name_or_path and os.path.exists(font_name_or_path):
         return ImageFont.truetype(font_name_or_path, font_size)
@@ -43,7 +133,17 @@ def _load_font(font_name_or_path, font_size):
         except Exception:
             pass
 
+    # Try downloading the font (Google Fonts or direct URL)
+    if font_name_or_path:
+        downloaded_path = _download_font(font_name_or_path)
+        if downloaded_path and os.path.exists(downloaded_path):
+            try:
+                return ImageFont.truetype(downloaded_path, font_size)
+            except Exception as e:
+                print(f"Error loading downloaded font: {e}")
+
     # Fallback: PIL default bitmap font (limited sizing)
+    print(f"Warning: Could not load font '{font_name_or_path}', using default font")
     return ImageFont.load_default()
 
 def _wrap_text(draw, text, font, max_width_px):

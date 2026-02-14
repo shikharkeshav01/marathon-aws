@@ -27,6 +27,11 @@ def main():
     output_path = "/Users/sunny/Downloads/output_reel.mp4"
 
     # Example reel configuration with template variables
+    # Font options:
+    # 1. System font path: "/System/Library/Fonts/Helvetica.ttc"
+    # 2. Google Font name: "Roboto", "Open Sans", "Montserrat"
+    # 3. Direct URL: "https://example.com/font.ttf"
+    # 4. Bundled font: "DejaVuSans.ttf"
     reel_config = {
         "overlays": [
             {
@@ -36,6 +41,7 @@ def main():
                 "duration": 2.0,
                 "position": "center",
                 "text_style": {
+                    "font": "Roboto",  # Try Google Font - will be downloaded at runtime
                     "font_size": 60,
                     "color": "#FFFFFF",
                     "stroke_color": "#000000",
