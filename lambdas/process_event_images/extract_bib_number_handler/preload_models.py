@@ -8,6 +8,7 @@ Environment variables to control which models to preload:
 Set to empty string to skip preloading that category.
 """
 import os
+import time
 
 # Which models to preload (can be configured via env vars during build)
 DETECTION_MODELS = os.environ.get("PRELOAD_DETECTION_MODELS", "yolov10n").split(",")
@@ -34,26 +35,46 @@ if DETECTION_MODELS:
             print(f"[PRELOAD] Error loading {model_name}: {e}")
             raise
 
-# Preload OCR models
+# Preload OCR models with retry logic
 for ocr_name in OCR_MODELS:
     if ocr_name == "easyocr":
         print("[PRELOAD] Loading EasyOCR reader (English)...")
-        try:
-            import easyocr
-            reader = easyocr.Reader(["en"], gpu=False)  # Use CPU during build
-            print("[PRELOAD] EasyOCR reader loaded successfully")
-        except Exception as e:
-            print(f"[PRELOAD] Error loading EasyOCR reader: {e}")
-            raise
+        max_retries = 3
+        retry_delay = 5
+
+        for attempt in range(max_retries):
+            try:
+                import easyocr
+                reader = easyocr.Reader(["en"], gpu=False)  # Use CPU during build
+                print("[PRELOAD] EasyOCR reader loaded successfully")
+                break
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"[PRELOAD] Error loading EasyOCR reader (attempt {attempt + 1}/{max_retries}): {e}")
+                    print(f"[PRELOAD] Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                else:
+                    print(f"[PRELOAD] Error loading EasyOCR reader after {max_retries} attempts: {e}")
+                    raise
 
     elif ocr_name == "paddleocr":
         print("[PRELOAD] Loading PaddleOCR (English)...")
-        try:
-            from paddleocr import PaddleOCR
-            ocr = PaddleOCR(use_textline_orientation=True, lang="en", device="cpu")
-            print("[PRELOAD] PaddleOCR loaded successfully")
-        except Exception as e:
-            print(f"[PRELOAD] Error loading PaddleOCR: {e}")
-            raise
+        max_retries = 3
+        retry_delay = 5
+
+        for attempt in range(max_retries):
+            try:
+                from paddleocr import PaddleOCR
+                ocr = PaddleOCR(use_textline_orientation=True, lang="en", device="cpu")
+                print("[PRELOAD] PaddleOCR loaded successfully")
+                break
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"[PRELOAD] Error loading PaddleOCR (attempt {attempt + 1}/{max_retries}): {e}")
+                    print(f"[PRELOAD] Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                else:
+                    print(f"[PRELOAD] Error loading PaddleOCR after {max_retries} attempts: {e}")
+                    raise
 
 print("[PRELOAD] All models preloaded successfully!")

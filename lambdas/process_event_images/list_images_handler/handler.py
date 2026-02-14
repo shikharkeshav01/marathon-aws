@@ -56,7 +56,6 @@ def handler(event, context):
     event_id = event.get("eventId")
     gdrive_folder_url = event.get("gdriveFolderUrl")
     csv_key= event.get("csvKey")
-    enable_face_matching = event.get("enableFaceMatching", False)
     folder_id = normalize_drive_id(gdrive_folder_url)
 
     # Save minimal record in DynamoDB
@@ -85,10 +84,22 @@ def handler(event, context):
                 completion_time = None
                 completion_time_str = row.get("Completion Time", "").strip()
                 if completion_time_str:
-                    try:
+                    # Try parsing as time format (HH:MM:SS or MM:SS)
+                    if ':' in completion_time_str:
+                        parts = completion_time_str.split(':')
+                        if len(parts) == 3:  # HH:MM:SS
+                            hours, minutes, seconds = map(int, parts)
+                            total_seconds = hours * 3600 + minutes * 60 + seconds
+                        elif len(parts) == 2:  # MM:SS
+                            minutes, seconds = map(int, parts)
+                            total_seconds = minutes * 60 + seconds
+                        else:
+                            raise ValueError(f"Invalid time format: '{completion_time_str}' (expected HH:MM:SS or MM:SS)")
+
+                        completion_time = Decimal(total_seconds)
+                    else:
+                        # Try parsing as plain number
                         completion_time = Decimal(completion_time_str)
-                    except (InvalidOperation, ValueError, TypeError):
-                        completion_time = None
 
                 participants_table.put_item(
                     Item={
@@ -140,8 +151,7 @@ def handler(event, context):
         "driveFolderUrl": str(gdrive_folder_url),
         "chunks": chunks,
         "totalImages": len(image_items),
-        "totalChunks": len(chunks),
-        "enableFaceMatching": enable_face_matching
+        "totalChunks": len(chunks)
     }
 
 

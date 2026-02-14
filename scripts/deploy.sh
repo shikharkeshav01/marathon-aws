@@ -107,8 +107,7 @@ ensure_table "${images_table}" "Id" "S" "" "" "AttributeName=EventId,AttributeTy
 ensure_table "${reels_table}" "ReelId" "S" "" "" "AttributeName=EventId,AttributeType=N AttributeName=BibId,AttributeType=S" \
   "[{\"IndexName\":\"EventId-BibId-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"},{\"AttributeName\":\"BibId\",\"KeyType\":\"RANGE\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]"
 
-ensure_table "${participants_table}" "EventId" "N" "BibId" "S" "AttributeName=Email,AttributeType=S" \
-  "[{\"IndexName\":\"EventId-Email-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"},{\"AttributeName\":\"Email\",\"KeyType\":\"RANGE\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]"
+ensure_table "${participants_table}" "EventId" "N" "BibId" "S"
 
 requests_arn="$(aws dynamodb describe-table --table-name "${requests_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
 images_arn="$(aws dynamodb describe-table --table-name "${images_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
