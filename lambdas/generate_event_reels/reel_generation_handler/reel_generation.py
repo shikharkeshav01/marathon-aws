@@ -112,38 +112,54 @@ def _load_font(font_name_or_path, font_size):
     Returns:
         ImageFont object
     """
+    print(f"[Font] Loading font: '{font_name_or_path}' at size {font_size}")
+
     # If a direct path is given and exists, use it
     if font_name_or_path and os.path.exists(font_name_or_path):
-        return ImageFont.truetype(font_name_or_path, font_size)
+        font = ImageFont.truetype(font_name_or_path, font_size)
+        print(f"[Font] ✓ Successfully loaded from direct path: {font_name_or_path}")
+        return font
 
-    # Try common bundled/default fonts
-    # DejaVuSans.ttf is commonly available in many environments
-    candidates = [
-        font_name_or_path,
-        "DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/Library/Fonts/Arial.ttf",
-        "arial.ttf",
-    ]
-    for c in candidates:
-        if not c:
-            continue
+    # Try the exact font name/path first (e.g., "DejaVuSans.ttf", "arial.ttf")
+    if font_name_or_path:
         try:
-            return ImageFont.truetype(c, font_size)
+            font = ImageFont.truetype(font_name_or_path, font_size)
+            print(f"[Font] ✓ Successfully loaded font: {font_name_or_path}")
+            return font
         except Exception:
             pass
 
     # Try downloading the font (Google Fonts or direct URL)
     if font_name_or_path:
+        print(f"[Font] Attempting to download font: '{font_name_or_path}'")
         downloaded_path = _download_font(font_name_or_path)
         if downloaded_path and os.path.exists(downloaded_path):
             try:
-                return ImageFont.truetype(downloaded_path, font_size)
+                font = ImageFont.truetype(downloaded_path, font_size)
+                print(f"[Font] ✓ Successfully loaded downloaded font: {downloaded_path}")
+                return font
             except Exception as e:
-                print(f"Error loading downloaded font: {e}")
+                print(f"[Font] ✗ Error loading downloaded font: {e}")
 
-    # Fallback: PIL default bitmap font (limited sizing)
-    print(f"Warning: Could not load font '{font_name_or_path}', using default font")
+    # Fallback: Try common system/bundled fonts
+    print(f"[Font] Requested font '{font_name_or_path}' not found, trying fallback fonts...")
+    fallback_candidates = [
+        "DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/Library/Fonts/Arial.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        "arial.ttf",
+    ]
+    for c in fallback_candidates:
+        try:
+            font = ImageFont.truetype(c, font_size)
+            print(f"[Font] ⚠ Using fallback font: {c}")
+            return font
+        except Exception:
+            pass
+
+    # Final fallback: PIL default bitmap font (limited sizing)
+    print(f"[Font] ⚠ Warning: Could not load any font, using default bitmap font")
     return ImageFont.load_default()
 
 def _wrap_text(draw, text, font, max_width_px):

@@ -18,7 +18,7 @@ from handler import generate_reel_local, process_reel_config
 
 def main():
     # Example configuration - adjust paths to your local files
-    video_path = "/Users/sunny/Downloads/background_video.mp4"  # Path to your background video
+    video_path = "/Users/sunny/Downloads/background_video_1.mp4"  # Path to your background video
     image_paths = [
         "/Users/sunny/Downloads/image1.jpeg",  # Path to first image
         "/Users/sunny/Downloads/image2.jpeg",
@@ -41,16 +41,14 @@ def main():
                 "duration": 2.0,
                 "position": "center",
                 "text_style": {
-                    "font": "Roboto",  # Try Google Font - will be downloaded at runtime
+                    "font": "Caveat Brush",  # Try Google Font - will be downloaded at runtime
                     "font_size": 60,
                     "color": "#FFFFFF",
                     "stroke_color": "#000000",
                     "stroke_width": 3,
                     "padding": 100,
                     "align": "top-center",
-                    "char_animation": True,
-                    "char_fade_duration": 0.01,
-                    "char_delay": 0.03,
+                    "char_animation": False,
                     "bg_gradient": {
                         "start": "#000000FF",
                         "end": "#000000FF"
