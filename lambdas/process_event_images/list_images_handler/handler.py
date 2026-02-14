@@ -80,27 +80,7 @@ def handler(event, context):
         # Store each participant in EventParticipants table
         for row in reader:
             try:
-                # Convert Completion Time to Decimal if it exists, otherwise None
-                completion_time = None
-                completion_time_str = row.get("Completion Time", "").strip()
-                if completion_time_str:
-                    # Try parsing as time format (HH:MM:SS or MM:SS)
-                    if ':' in completion_time_str:
-                        parts = completion_time_str.split(':')
-                        if len(parts) == 3:  # HH:MM:SS
-                            hours, minutes, seconds = map(int, parts)
-                            total_seconds = hours * 3600 + minutes * 60 + seconds
-                        elif len(parts) == 2:  # MM:SS
-                            minutes, seconds = map(int, parts)
-                            total_seconds = minutes * 60 + seconds
-                        else:
-                            raise ValueError(f"Invalid time format: '{completion_time_str}' (expected HH:MM:SS or MM:SS)")
-
-                        completion_time = Decimal(total_seconds)
-                    else:
-                        # Try parsing as plain number
-                        completion_time = Decimal(completion_time_str)
-
+                completion_time = row.get("Completion Time", "").strip()
                 participants_table.put_item(
                     Item={
                         "EventId": int(event_id),  # Partition Key
