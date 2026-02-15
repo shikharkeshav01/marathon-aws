@@ -5,9 +5,25 @@
     "ListImages": {
       "Type": "Task",
       "Resource": "${LIST_IMAGES_HANDLER_ARN}",
-      "Next": "ProcessChunks"
+      "Next": "ChooseProcessingMode"
     },
-    "ProcessChunks": {
+    "ChooseProcessingMode": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.processingMode",
+          "StringEquals": "face",
+          "Next": "ProcessChunksFace"
+        },
+        {
+          "Variable": "$.processingMode",
+          "StringEquals": "bib",
+          "Next": "ProcessChunksBib"
+        }
+      ],
+      "Default": "ProcessChunksBib"
+    },
+    "ProcessChunksBib": {
       "Type": "Map",
       "ItemsPath": "$.chunks",
       "ResultPath": null,
@@ -18,9 +34,9 @@
         "requestId.$": "$.requestId"
       },
       "Iterator": {
-        "StartAt": "ProcessImages",
+        "StartAt": "ProcessImagesBib",
         "States": {
-          "ProcessImages": {
+          "ProcessImagesBib": {
             "Type": "Map",
             "ItemsPath": "$.chunk",
             "ResultPath": null,
@@ -36,6 +52,45 @@
                 "ExtractBibNumber": {
                   "Type": "Task",
                   "Resource": "${EXTRACT_BIB_NUMBER_HANDLER_ARN}",
+                  "End": true
+                }
+              }
+            },
+            "End": true
+          }
+        }
+      },
+      "Next": "ProcessingComplete"
+    },
+    "ProcessChunksFace": {
+      "Type": "Map",
+      "ItemsPath": "$.chunks",
+      "ResultPath": null,
+      "MaxConcurrency": 10,
+      "Parameters": {
+        "chunk.$": "$$.Map.Item.Value",
+        "eventId.$": "$.eventId",
+        "requestId.$": "$.requestId"
+      },
+      "Iterator": {
+        "StartAt": "ProcessImagesFace",
+        "States": {
+          "ProcessImagesFace": {
+            "Type": "Map",
+            "ItemsPath": "$.chunk",
+            "ResultPath": null,
+            "MaxConcurrency": 100,
+            "Parameters": {
+              "eventId.$": "$.eventId",
+              "fileId.$": "$$.Map.Item.Value.fileId",
+              "requestId.$": "$.requestId"
+            },
+            "Iterator": {
+              "StartAt": "IndexFaces",
+              "States": {
+                "IndexFaces": {
+                  "Type": "Task",
+                  "Resource": "${INDEX_FACES_HANDLER_ARN}",
                   "End": true
                 }
               }

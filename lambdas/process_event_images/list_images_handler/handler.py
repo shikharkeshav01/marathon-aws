@@ -55,46 +55,56 @@ def handler(event, context):
     request_id = event.get("requestId")
     event_id = event.get("eventId")
     gdrive_folder_url = event.get("gdriveFolderUrl")
-    csv_key= event.get("csvKey")
+    csv_key = event.get("csvKey")
+    processing_mode = event.get("processingMode", "bib")  # Default to "bib" for backward compatibility
     folder_id = normalize_drive_id(gdrive_folder_url)
 
     # Save minimal record in DynamoDB
-    table.put_item(
-        Item={
-            "RequestId": request_id,  # Partition Key
-            "DriveUrl": str(gdrive_folder_url),
-            "EventId": int(event_id),
-            "Status": "IN_PROGRESS",
-            "RequestType": "PROCESS_EVENT_IMAGES",
-            "CsvKey": csv_key,
-            "CreatedAt": datetime.utcnow().isoformat()
-        }
-    )
-    local_csv_path="/tmp/participants.csv"
-    s3.download_file(RAW_BUCKET, csv_key, local_csv_path)
+    item = {
+        "RequestId": request_id,  # Partition Key
+        "DriveUrl": str(gdrive_folder_url),
+        "EventId": int(event_id),
+        "Status": "IN_PROGRESS",
+        "RequestType": "PROCESS_EVENT_IMAGES",
+        "ProcessingMode": processing_mode,
+        "CreatedAt": datetime.utcnow().isoformat()
+    }
+    if csv_key:
+        item["CsvKey"] = csv_key
 
-    # Read CSV file with built-in csv module and store participants in DynamoDB
-    with open(local_csv_path, 'r', encoding='utf-8') as csvfile:
-        reader = csv.DictReader(csvfile)
+    table.put_item(Item=item)
 
-        # Store each participant in EventParticipants table
-        for row in reader:
-            try:
-                completion_time = row.get("Completion Time", "").strip()
-                participants_table.put_item(
-                    Item={
-                        "EventId": int(event_id),  # Partition Key
-                        "BibId": str(row["Bib No"]),  # Sort Key
-                        "ParticipantName": str(row["Participant Name"]),
-                        "TicketName": str(row["Ticket Name"]),
-                        "Phone": str(row["Phone"]),
-                        "Email": str(row["Email"]),
-                        "CompletionTime": completion_time
-                    }
-                )
-            except Exception as e:
-                print(f"Error storing participant {row.get('Bib No', 'unknown')}: {e}")
-                raise e
+    # Only process CSV for bib mode
+    if processing_mode == "bib" and csv_key:
+        local_csv_path = "/tmp/participants.csv"
+        s3.download_file(RAW_BUCKET, csv_key, local_csv_path)
+
+        # Read CSV file with built-in csv module and store participants in DynamoDB
+        with open(local_csv_path, 'r', encoding='utf-8') as csvfile:
+            reader = csv.DictReader(csvfile)
+
+            # Store each participant in EventParticipants table
+            for row in reader:
+                try:
+                    completion_time = row.get("Completion Time", "").strip()
+                    participants_table.put_item(
+                        Item={
+                            "EventId": int(event_id),  # Partition Key
+                            "BibId": str(row["Bib No"]),  # Sort Key
+                            "ParticipantName": str(row["Participant Name"]),
+                            "TicketName": str(row["Ticket Name"]),
+                            "Phone": str(row["Phone"]),
+                            "Email": str(row["Email"]),
+                            "CompletionTime": completion_time
+                        }
+                    )
+                except Exception as e:
+                    print(f"Error storing participant {row.get('Bib No', 'unknown')}: {e}")
+                    raise e
+    elif processing_mode == "face":
+        print(f"[INFO] Face mode - skipping CSV processing")
+    else:
+        print(f"[WARN] Unknown processing mode: {processing_mode}, defaulting to bib")
 
     # List images in the folder and return URLs for Step Functions Map
     image_items = []
@@ -129,6 +139,7 @@ def handler(event, context):
         "requestId": request_id,
         "eventId": int(event_id),
         "driveFolderUrl": str(gdrive_folder_url),
+        "processingMode": processing_mode,
         "chunks": chunks,
         "totalImages": len(image_items),
         "totalChunks": len(chunks)

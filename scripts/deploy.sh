@@ -44,19 +44,23 @@ ensure_table() {
   fi
 
   echo "Creating table ${name}"
-  local attr_def_args=(--attribute-definitions "AttributeName=${hash_name},AttributeType=${hash_type}")
+  # Build attribute definitions as a single space-separated string
+  local attr_defs="AttributeName=${hash_name},AttributeType=${hash_type}"
   if [[ -n "${range_name}" ]]; then
-    attr_def_args+=(--attribute-definitions "AttributeName=${range_name},AttributeType=${range_type}")
+    attr_defs="${attr_defs} AttributeName=${range_name},AttributeType=${range_type}"
   fi
   if [[ -n "${extra_attr_defs}" ]]; then
-    # extra_attr_defs should be in format "AttributeName=Name,AttributeType=Type"
-    attr_def_args+=(--attribute-definitions "${extra_attr_defs}")
+    # extra_attr_defs should be in format "AttributeName=Name,AttributeType=Type AttributeName=Name2,AttributeType=Type2"
+    attr_defs="${attr_defs} ${extra_attr_defs}"
   fi
 
-  local args=(--table-name "${name}" --billing-mode PAY_PER_REQUEST "${attr_def_args[@]}" --key-schema "AttributeName=${hash_name},KeyType=HASH")
+  # Build key schema as space-separated string
+  local key_schema="AttributeName=${hash_name},KeyType=HASH"
   if [[ -n "${range_name}" ]]; then
-    args+=(--key-schema "AttributeName=${range_name},KeyType=RANGE")
+    key_schema="${key_schema} AttributeName=${range_name},KeyType=RANGE"
   fi
+
+  local args=(--table-name "${name}" --billing-mode PAY_PER_REQUEST --attribute-definitions ${attr_defs} --key-schema ${key_schema})
   if [[ -n "${gsi_json}" ]]; then
     args+=(--global-secondary-indexes "${gsi_json}")
   fi
@@ -98,6 +102,9 @@ requests_table="EventRequests"
 images_table="EventImages"
 reels_table="EventReels"
 participants_table="EventParticipants"
+indexed_faces_table="IndexedFaces"
+user_faces_table="UserFaces"
+user_image_matches_table="UserImageMatches"
 
 ensure_table "${requests_table}" "RequestId" "S"
 
@@ -109,10 +116,22 @@ ensure_table "${reels_table}" "ReelId" "S" "" "" "AttributeName=EventId,Attribut
 
 ensure_table "${participants_table}" "EventId" "N" "BibId" "S"
 
+# Face detection tables
+ensure_table "${indexed_faces_table}" "FaceId" "S" "" "" "AttributeName=EventId,AttributeType=N" \
+  "[{\"IndexName\":\"EventId-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]"
+
+ensure_table "${user_faces_table}" "Email" "S" "EventId" "N"
+
+ensure_table "${user_image_matches_table}" "Email" "S" "ImageS3Key" "S" "AttributeName=EventId,AttributeType=N" \
+  "[{\"IndexName\":\"EventId-Email-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"},{\"AttributeName\":\"Email\",\"KeyType\":\"RANGE\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]"
+
 requests_arn="$(aws dynamodb describe-table --table-name "${requests_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
 images_arn="$(aws dynamodb describe-table --table-name "${images_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
 reels_arn="$(aws dynamodb describe-table --table-name "${reels_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
 participants_arn="$(aws dynamodb describe-table --table-name "${participants_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
+indexed_faces_arn="$(aws dynamodb describe-table --table-name "${indexed_faces_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
+user_faces_arn="$(aws dynamodb describe-table --table-name "${user_faces_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
+user_image_matches_arn="$(aws dynamodb describe-table --table-name "${user_image_matches_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
 
 # Step 2: Create IAM roles
 echo ""
@@ -132,7 +151,7 @@ sfn_role_arn="$(aws iam get-role --role-name "${sfn_role_name}" --query 'Role.Ar
 # Attach policies to roles
 logs_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["logs:CreateLogGroup","logs:CreateLogStream","logs:PutLogEvents"],"Resource":"*"}]}'
 ddb_policy=$(cat <<EOF
-{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query","dynamodb:Scan"],"Resource":["${requests_arn}","${requests_arn}/index/*","${images_arn}","${images_arn}/index/*","${reels_arn}","${reels_arn}/index/*","${participants_arn}","${participants_arn}/index/*"]}]}
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query","dynamodb:Scan"],"Resource":["${requests_arn}","${requests_arn}/index/*","${images_arn}","${images_arn}/index/*","${reels_arn}","${reels_arn}/index/*","${participants_arn}","${participants_arn}/index/*","${indexed_faces_arn}","${indexed_faces_arn}/index/*","${user_faces_arn}","${user_faces_arn}/index/*","${user_image_matches_arn}","${user_image_matches_arn}/index/*"]}]}
 EOF
 )
 invoke_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["lambda:InvokeFunction"],"Resource":"*"}]}'
@@ -149,9 +168,12 @@ EOF
 )
 put_inline_policy "${lambda_role_name}" "s3" "${s3_policy}"
 
+rekognition_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["rekognition:CreateCollection","rekognition:DeleteCollection","rekognition:DescribeCollection","rekognition:ListCollections","rekognition:IndexFaces","rekognition:SearchFaces","rekognition:SearchFacesByImage","rekognition:ListFaces","rekognition:DeleteFaces","rekognition:DetectFaces"],"Resource":"*"}]}'
+put_inline_policy "${lambda_role_name}" "rekognition" "${rekognition_policy}"
+
 # Prepare environment JSON for Lambdas
 env_json=$(cat <<EOF
-{"Variables":{"RAW_BUCKET":"marathon-photos","EVENT_REQUESTS_TABLE":"${requests_table}","EVENT_IMAGES_TABLE":"${images_table}","EVENT_REELS_TABLE":"${reels_table}","EVENT_PARTICIPANTS_TABLE":"${participants_table}","GDRIVE_SA_SSM_PARAM":"google-service-account"}}
+{"Variables":{"RAW_BUCKET":"marathon-photos","EVENT_REQUESTS_TABLE":"${requests_table}","EVENT_IMAGES_TABLE":"${images_table}","EVENT_REELS_TABLE":"${reels_table}","EVENT_PARTICIPANTS_TABLE":"${participants_table}","INDEXED_FACES_TABLE":"${indexed_faces_table}","USER_FACES_TABLE":"${user_faces_table}","USER_IMAGE_MATCHES_TABLE":"${user_image_matches_table}","GDRIVE_SA_SSM_PARAM":"google-service-account"}}
 EOF
 )
 
@@ -161,16 +183,20 @@ echo "=== Deploying Lambda functions ==="
 
 list_images_handler_arn=""
 extract_bib_number_handler_arn=""
+index_faces_handler_arn=""
 image_processing_completion_handler_arn=""
 event_images_bib_extraction_handler_arn=""
 reel_generation_handler_arn=""
 reel_generation_completion_handler_arn=""
+register_user_face_handler_arn=""
+get_user_photos_handler_arn=""
 
 if "${deploy_process}"; then
   echo ""
   echo "Deploying process-event-images Lambdas..."
   list_images_handler_arn=$("${LAMBDA_DIR}/process_event_images/list_images_handler/deploy.sh" "${REGION}" "${RUNTIME}" "${lambda_role_arn}" "${env_json}")
   extract_bib_number_handler_arn=$("${LAMBDA_DIR}/process_event_images/extract_bib_number_handler/deploy.sh" "${REGION}" "${lambda_role_arn}" "${env_json}")
+  index_faces_handler_arn=$("${LAMBDA_DIR}/process_event_images/index_faces_handler/deploy.sh" "${REGION}" "${RUNTIME}" "${lambda_role_arn}" "${env_json}")
   image_processing_completion_handler_arn=$("${LAMBDA_DIR}/process_event_images/image_processing_completion_handler/deploy.sh" "${REGION}" "${RUNTIME}" "${lambda_role_arn}" "${env_json}")
 fi
 
@@ -182,12 +208,19 @@ if "${deploy_reels}"; then
   reel_generation_completion_handler_arn=$("${LAMBDA_DIR}/generate_event_reels/reel_generation_completion_handler/deploy.sh" "${REGION}" "${RUNTIME}" "${lambda_role_arn}" "${env_json}")
 fi
 
+# Deploy user face management Lambdas (always deployed)
+echo ""
+echo "Deploying user-face-management Lambdas..."
+register_user_face_handler_arn=$("${LAMBDA_DIR}/user_face_management/register_user_face_handler/deploy.sh" "${REGION}" "${RUNTIME}" "${lambda_role_arn}" "${env_json}")
+get_user_photos_handler_arn=$("${LAMBDA_DIR}/user_face_management/get_user_photos_handler/deploy.sh" "${REGION}" "${RUNTIME}" "${lambda_role_arn}" "${env_json}")
+
 # Step 3.5: Create CloudWatch log groups for Lambda functions
 echo ""
 echo "=== Creating CloudWatch log groups ==="
 if "${deploy_process}"; then
   ensure_log_group "/aws/lambda/list_images_handler"
   ensure_log_group "/aws/lambda/extract_bib_number_handler"
+  ensure_log_group "/aws/lambda/index_faces_handler"
   ensure_log_group "/aws/lambda/image_processing_completion_handler"
 fi
 if "${deploy_reels}"; then
@@ -195,6 +228,9 @@ if "${deploy_reels}"; then
   ensure_log_group "/aws/lambda/reel_generation_handler"
   ensure_log_group "/aws/lambda/reel_generation_completion_handler"
 fi
+# User face management log groups (always created)
+ensure_log_group "/aws/lambda/register_user_face_handler"
+ensure_log_group "/aws/lambda/get_user_photos_handler"
 
 # Step 4: Create Step Functions state machines
 echo ""
@@ -206,7 +242,7 @@ reels_sm_arn=""
 if "${deploy_process}"; then
   echo ""
   echo "Deploying process-images-state-machine..."
-  process_sm_arn=$("${STEP_FUNCTIONS_DIR}/process_images_state_machine/deploy.sh" "${REGION}" "${sfn_role_arn}" "${list_images_handler_arn}" "${extract_bib_number_handler_arn}" "${image_processing_completion_handler_arn}")
+  process_sm_arn=$("${STEP_FUNCTIONS_DIR}/process_images_state_machine/deploy.sh" "${REGION}" "${sfn_role_arn}" "${list_images_handler_arn}" "${extract_bib_number_handler_arn}" "${index_faces_handler_arn}" "${image_processing_completion_handler_arn}")
 fi
 
 if "${deploy_reels}"; then
@@ -223,6 +259,7 @@ echo "Lambda ARNs:"
 if "${deploy_process}"; then
   echo "  list_images_handler: ${list_images_handler_arn}"
   echo "  extract_bib_number_handler: ${extract_bib_number_handler_arn}"
+  echo "  index_faces_handler: ${index_faces_handler_arn}"
   echo "  image_processing_completion_handler: ${image_processing_completion_handler_arn}"
 fi
 if "${deploy_reels}"; then
@@ -230,3 +267,5 @@ if "${deploy_reels}"; then
   echo "  reel_generation_handler: ${reel_generation_handler_arn}"
   echo "  reel_generation_completion_handler: ${reel_generation_completion_handler_arn}"
 fi
+echo "  register_user_face_handler: ${register_user_face_handler_arn}"
+echo "  get_user_photos_handler: ${get_user_photos_handler_arn}"
