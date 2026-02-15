@@ -5,7 +5,8 @@ import os
 import subprocess
 import urllib.request
 import hashlib
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
+
 
 def _parse_hex_color(color):
     if color is None:
@@ -16,12 +17,18 @@ def _parse_hex_color(color):
     if s.startswith("#"):
         s = s[1:]
     if len(s) == 6:
-        r = int(s[0:2], 16); g = int(s[2:4], 16); b = int(s[4:6], 16)
+        r = int(s[0:2], 16);
+        g = int(s[2:4], 16);
+        b = int(s[4:6], 16)
         return (r, g, b, 255)
     if len(s) == 8:
-        r = int(s[0:2], 16); g = int(s[2:4], 16); b = int(s[4:6], 16); a = int(s[6:8], 16)
+        r = int(s[0:2], 16);
+        g = int(s[2:4], 16);
+        b = int(s[4:6], 16);
+        a = int(s[6:8], 16)
         return (r, g, b, a)
     raise ValueError(f"Unsupported color format: {color}")
+
 
 def _download_font(font_name_or_url, cache_dir="/tmp/fonts"):
     """
@@ -93,6 +100,7 @@ def _download_font(font_name_or_url, cache_dir="/tmp/fonts"):
         print(f"Error downloading font from '{font_url}': {e}")
         return None
 
+
 def _load_font(font_name_or_path, font_size):
     """
     Load a font, with support for:
@@ -162,6 +170,7 @@ def _load_font(font_name_or_path, font_size):
     print(f"[Font] ⚠ Warning: Could not load any font, using default bitmap font")
     return ImageFont.load_default()
 
+
 def _wrap_text(draw, text, font, max_width_px):
     # Preserve manual newlines first
     lines = []
@@ -184,6 +193,7 @@ def _wrap_text(draw, text, font, max_width_px):
         if current:
             lines.append(" ".join(current))
     return lines
+
 
 def _create_gradient_image(width, height, start_color, end_color, direction="vertical"):
     """
@@ -225,20 +235,21 @@ def _create_gradient_image(width, height, start_color, end_color, direction="ver
 
     return img
 
+
 def make_text_rgba_image(
-    text: str,
-    max_width_px: int | None,
-    font="DejaVuSans.ttf",
-    font_size=48,
-    color="#FFFFFF",
-    stroke_color="#000000",
-    stroke_width=0,
-    bg_color=None,
-    bg_gradient=None,
-    padding=10,
-    align="center",        # left|center|right
-    line_spacing=6,
-    opacity=1.0
+        text: str,
+        max_width_px: int | None,
+        font="DejaVuSans.ttf",
+        font_size=48,
+        color="#FFFFFF",
+        stroke_color="#000000",
+        stroke_width=0,
+        bg_color=None,
+        bg_gradient=None,
+        padding=10,
+        align="center",  # left|center|right
+        line_spacing=6,
+        opacity=1.0
 ) -> Image.Image:
     # Create a tiny canvas just to measure/wrap
     tmp = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
@@ -325,7 +336,7 @@ def test():
 def transform_image(image_path, scale=1.0, rotation=0, opacity=1.0):
     """
     Load and transform an image with scaling, rotation, and opacity.
-    
+
     Args:
         image_path: Path to the image file
         scale: Scaling factor (1.0 = original size)
@@ -335,9 +346,12 @@ def transform_image(image_path, scale=1.0, rotation=0, opacity=1.0):
     Returns:
         PIL Image object with transformations applied
     """
-    # Load image
-    img = Image.open(image_path).convert("RGBA")
-    
+    # Load image and apply EXIF orientation
+    img = Image.open(image_path)
+    # Apply EXIF orientation to fix rotated images from cameras/phones
+    img = ImageOps.exif_transpose(img)
+    img = img.convert("RGBA")
+
     # Apply scaling
     if scale != 1.0:
         new_size = (int(img.width * scale), int(img.height * scale))
@@ -352,7 +366,7 @@ def transform_image(image_path, scale=1.0, rotation=0, opacity=1.0):
         alpha = img.split()[3]
         alpha = alpha.point(lambda p: int(p * opacity))
         img.putalpha(alpha)
-    
+
     return img
 
 
@@ -383,15 +397,15 @@ def get_position(position, video_size, overlay_size):
 
         # Compound positions
         mapping = {
-            "center":      ("center", "center"),
-            "top":         ("center", "top"),
-            "bottom":      ("center", "bottom"),
-            "left":        ("left", "center"),
-            "right":       ("right", "center"),
-            "top-left":    ("left", "top"),
-            "top-right":   ("right", "top"),
+            "center": ("center", "center"),
+            "top": ("center", "top"),
+            "bottom": ("center", "bottom"),
+            "left": ("left", "center"),
+            "right": ("right", "center"),
+            "top-left": ("left", "top"),
+            "top-right": ("right", "top"),
             "bottom-left": ("left", "bottom"),
-            "bottom-right":("right", "bottom"),
+            "bottom-right": ("right", "bottom"),
         }
 
         if p not in mapping:
@@ -444,6 +458,7 @@ def _resolve_xy(x, y, vw, vh, ow, oh):
 
     return (px, py)
 
+
 def _get_character_positions(text, font_obj, line_spacing=6):
     """
     Calculate the position of each character in the rendered text.
@@ -477,22 +492,22 @@ def _get_character_positions(text, font_obj, line_spacing=6):
 
 
 def make_animated_text_clip(
-    text: str,
-    duration: float,
-    max_width_px: int | None,
-    char_fade_duration: float = 0.15,
-    char_delay: float = 0.05,
-    font="DejaVuSans.ttf",
-    font_size=48,
-    color="#FFFFFF",
-    stroke_color="#000000",
-    stroke_width=0,
-    bg_color=None,
-    bg_gradient=None,
-    padding=10,
-    align="center",
-    line_spacing=6,
-    opacity=1.0
+        text: str,
+        duration: float,
+        max_width_px: int | None,
+        char_fade_duration: float = 0.15,
+        char_delay: float = 0.05,
+        font="DejaVuSans.ttf",
+        font_size=48,
+        color="#FFFFFF",
+        stroke_color="#000000",
+        stroke_width=0,
+        bg_color=None,
+        bg_gradient=None,
+        padding=10,
+        align="center",
+        line_spacing=6,
+        opacity=1.0
 ):
     """
     Create an animated text clip where each character fades in sequentially.
@@ -640,6 +655,7 @@ def save_output():
 }
 """
 
+
 def overlay_images_on_video(video_path, overlays, output_path):
     print(f"Loading video: {video_path}")
     video = VideoFileClip(video_path)
@@ -655,11 +671,11 @@ def overlay_images_on_video(video_path, overlays, output_path):
         end_time = start_time + duration
 
         if duration <= 0:
-            print(f"Warning: Overlay {i+1} has non-positive duration, skipping...")
+            print(f"Warning: Overlay {i + 1} has non-positive duration, skipping...")
             continue
 
         if start_time >= video_duration:
-            print(f"Warning: Overlay {i+1} starts after video ends, skipping...")
+            print(f"Warning: Overlay {i + 1} starts after video ends, skipping...")
             continue
 
         # Handle image_stack type - creates multiple overlays from a single config

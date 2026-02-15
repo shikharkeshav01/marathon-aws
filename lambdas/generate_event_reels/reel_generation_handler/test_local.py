@@ -20,9 +20,12 @@ def main():
     # Example configuration - adjust paths to your local files
     video_path = "/Users/sunny/Downloads/background_video_1.mp4"  # Path to your background video
     image_paths = [
-        "/Users/sunny/Downloads/image1.jpeg",  # Path to first image
-        "/Users/sunny/Downloads/image2.jpeg",
-        "/Users/sunny/Downloads/image3.jpeg"
+        "/Users/sunny/Downloads/img1.jpeg",  # Path to first image
+        "/Users/sunny/Downloads/img2.jpeg",
+        "/Users/sunny/Downloads/img3.jpeg",
+        "/Users/sunny/Downloads/img4.jpeg",
+        "/Users/sunny/Downloads/img5.jpeg",
+        "/Users/sunny/Downloads/img6.jpeg"
     ]
     output_path = "/Users/sunny/Downloads/output_reel.mp4"
 
