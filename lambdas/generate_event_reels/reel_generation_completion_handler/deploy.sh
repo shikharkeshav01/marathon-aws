@@ -6,6 +6,7 @@ set -euo pipefail
 
 LAMBDA_NAME="reel_generation_completion_handler"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LAMBDA_TIMEOUT=120
 
 # Detect if called standalone (no parameters) or from main script
 if [[ $# -eq 0 ]]; then
@@ -199,10 +200,10 @@ if aws lambda get-function --function-name "${LAMBDA_NAME}" --region "${REGION}"
   wait_for_lambda_ready "${LAMBDA_NAME}"
   aws lambda update-function-code --function-name "${LAMBDA_NAME}" --zip-file "fileb://${ZIP_FILE}" --region "${REGION}" >/dev/null
   wait_for_lambda_ready "${LAMBDA_NAME}"
-  aws lambda update-function-configuration --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --runtime "${RUNTIME}" --handler handler.main --environment "${env_json}" --region "${REGION}" >/dev/null
+  aws lambda update-function-configuration --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --runtime "${RUNTIME}"  --timeout "${LAMBDA_TIMEOUT}" --handler handler.main --environment "${env_json}" --region "${REGION}" >/dev/null
 else
   echo >&2 "Creating ${LAMBDA_NAME}..."
-  aws lambda create-function --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --runtime "${RUNTIME}" --handler handler.main --zip-file "fileb://${ZIP_FILE}" --environment "${env_json}" --region "${REGION}" >/dev/null
+  aws lambda create-function --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --runtime "${RUNTIME}" --handler handler.main  --timeout "${LAMBDA_TIMEOUT}" --zip-file "fileb://${ZIP_FILE}" --environment "${env_json}" --region "${REGION}" >/dev/null
 fi
 
 # Get Lambda ARN

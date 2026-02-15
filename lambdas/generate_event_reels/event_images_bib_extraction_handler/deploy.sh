@@ -5,6 +5,7 @@ set -euo pipefail
 # Can be run standalone or called from main deploy.sh with parameters
 
 LAMBDA_NAME="event_images_bib_extraction_handler"
+LAMBDA_TIMEOUT=120
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Detect if called standalone (no parameters) or from main script
@@ -201,10 +202,10 @@ if aws lambda get-function --function-name "${LAMBDA_NAME}" --region "${REGION}"
   wait_for_lambda_ready "${LAMBDA_NAME}"
   aws lambda update-function-code --function-name "${LAMBDA_NAME}" --zip-file "fileb://${ZIP_FILE}" --region "${REGION}" >/dev/null
   wait_for_lambda_ready "${LAMBDA_NAME}"
-  aws lambda update-function-configuration --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --runtime "${RUNTIME}" --handler handler.main --environment "${env_json}" --region "${REGION}" >/dev/null
+  aws lambda update-function-configuration --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --runtime "${RUNTIME}" --handler handler.main --environment "${env_json}" --timeout "${LAMBDA_TIMEOUT}" --region "${REGION}" >/dev/null
 else
   echo >&2 "Creating ${LAMBDA_NAME}..."
-  aws lambda create-function --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --runtime "${RUNTIME}" --handler handler.main --zip-file "fileb://${ZIP_FILE}" --environment "${env_json}" --region "${REGION}" >/dev/null
+  aws lambda create-function --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --runtime "${RUNTIME}" --handler handler.main --zip-file "fileb://${ZIP_FILE}" --environment "${env_json}" --timeout "${LAMBDA_TIMEOUT}" --region "${REGION}" >/dev/null
 fi
 
 # Get Lambda ARN
