@@ -20,11 +20,15 @@ if [[ $# -eq 0 ]]; then
     echo >&2 "Creating IAM role ${SFN_ROLE_NAME}..."
     sfn_assume='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"states.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
     aws iam create-role --role-name "${SFN_ROLE_NAME}" --assume-role-policy-document "${sfn_assume}" >/dev/null
-
-    # Attach invoke policy
-    invoke_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["lambda:InvokeFunction"],"Resource":"*"}]}'
-    aws iam put-role-policy --role-name "${SFN_ROLE_NAME}" --policy-name "invoke" --policy-document "${invoke_policy}" >/dev/null
   fi
+
+  # Attach policies (Distributed Map requires Lambda invoke, S3 read, and states permissions)
+  invoke_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["lambda:InvokeFunction"],"Resource":"*"}]}'
+  aws iam put-role-policy --role-name "${SFN_ROLE_NAME}" --policy-name "invoke" --policy-document "${invoke_policy}" >/dev/null
+  sfn_s3_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:ListBucket"],"Resource":["arn:aws:s3:::marathon-photos","arn:aws:s3:::marathon-photos/*"]}]}'
+  aws iam put-role-policy --role-name "${SFN_ROLE_NAME}" --policy-name "s3" --policy-document "${sfn_s3_policy}" >/dev/null
+  sfn_states_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["states:StartExecution","states:DescribeExecution","states:StopExecution","states:RedriveExecution"],"Resource":"*"}]}'
+  aws iam put-role-policy --role-name "${SFN_ROLE_NAME}" --policy-name "states" --policy-document "${sfn_states_policy}" >/dev/null
 
   SFN_ROLE_ARN="$(aws iam get-role --role-name "${SFN_ROLE_NAME}" --query 'Role.Arn' --output text)"
 

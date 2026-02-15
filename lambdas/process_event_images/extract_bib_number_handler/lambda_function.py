@@ -1,6 +1,7 @@
 # processor.py
-import os, json, boto3, traceback, mimetypes
+import os, json, boto3, traceback, mimetypes, time
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from google.oauth2 import service_account
 from bib_extraction import detect_and_extract_bibs, DetectionModel, OCRModel
 import uuid
@@ -95,21 +96,63 @@ def add_entry_to_db(event_id, filename, bib_numbers):
         table.put_item(Item=item)
 
 
-def download_file(file_id):
+def download_file(file_id, max_retries=3):
+    """
+    Download file from Google Drive with retry logic.
+
+    Args:
+        file_id: Google Drive file ID
+        max_retries: Maximum number of retry attempts (default: 3)
+
+    Returns:
+        tuple: (filename, data, mime_type)
+    """
     print(f"Downloading file from Drive. ID: {file_id}")
-    # 1) Get file metadata (name + mime type)
-    metadata = drive.files().get(
-        fileId=file_id,
-        fields="name,mimeType"
-    ).execute()
 
-    mime_type = metadata["mimeType"]
-    filename = metadata["name"]
+    for attempt in range(max_retries):
+        try:
+            # 1) Get file metadata (name + mime type)
+            metadata = drive.files().get(
+                fileId=file_id,
+                fields="name,mimeType"
+            ).execute()
 
-    # 2) Download image from Google Drive
-    data = drive.files().get_media(fileId=file_id).execute()
-    print(f"Downloaded {filename}, size: {len(data)} bytes")
-    return filename, data, mime_type
+            mime_type = metadata["mimeType"]
+            filename = metadata["name"]
+
+            # 2) Download image from Google Drive
+            data = drive.files().get_media(fileId=file_id).execute()
+            print(f"Downloaded {filename}, size: {len(data)} bytes")
+            return filename, data, mime_type
+
+        except HttpError as e:
+            # Retry on rate limit (403) or server errors (500, 502, 503, 504)
+            status_code = e.resp.status
+            if status_code in [403, 500, 502, 503, 504]:
+                if attempt < max_retries - 1:
+                    # Exponential backoff: 1s, 2s, 4s
+                    wait_time = 2 ** attempt
+                    print(f"[RETRY] Google Drive API error {status_code}, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                else:
+                    print(f"[ERROR] Google Drive API error {status_code} after {max_retries} attempts")
+                    raise
+            else:
+                # Don't retry on other errors (e.g., 404 not found)
+                raise
+
+        except Exception as e:
+            # Retry on network errors or other transient issues
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt
+                print(f"[RETRY] Download failed: {str(e)}, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait_time)
+            else:
+                print(f"[ERROR] Download failed after {max_retries} attempts: {str(e)}")
+                raise
+
+    # Should never reach here, but just in case
+    raise RuntimeError(f"Failed to download file {file_id} after {max_retries} retries")
 
 
 def upload_file(s3_key, data):

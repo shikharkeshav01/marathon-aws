@@ -1,5 +1,5 @@
 {
-  "Comment": "Process event images pipeline with nested Map States for chunked processing",
+  "Comment": "Process event images pipeline using Distributed Map to read image list from S3",
   "StartAt": "ListImages",
   "States": {
     "ListImages": {
@@ -13,88 +13,83 @@
         {
           "Variable": "$.processingMode",
           "StringEquals": "face",
-          "Next": "ProcessChunksFace"
+          "Next": "ProcessImagesFace"
         },
         {
           "Variable": "$.processingMode",
           "StringEquals": "bib",
-          "Next": "ProcessChunksBib"
+          "Next": "ProcessImagesBib"
         }
       ],
-      "Default": "ProcessChunksBib"
+      "Default": "ProcessImagesBib"
     },
-    "ProcessChunksBib": {
+    "ProcessImagesBib": {
       "Type": "Map",
-      "ItemsPath": "$.chunks",
-      "ResultPath": null,
-      "MaxConcurrency": 10,
-      "Parameters": {
-        "chunk.$": "$$.Map.Item.Value",
-        "eventId.$": "$.eventId",
-        "requestId.$": "$.requestId"
+      "ItemReader": {
+        "Resource": "arn:aws:states:::s3:getObject",
+        "ReaderConfig": {
+          "InputType": "JSON"
+        },
+        "Parameters": {
+          "Bucket.$": "$.manifestBucket",
+          "Key.$": "$.manifestKey"
+        }
       },
-      "Iterator": {
-        "StartAt": "ProcessImagesBib",
+      "ItemSelector": {
+        "eventId.$": "$.eventId",
+        "requestId.$": "$.requestId",
+        "fileId.$": "$$.Map.Item.Value.fileId"
+      },
+      "MaxConcurrency": 50,
+      "ResultPath": null,
+      "Label": "ProcessImagesBib",
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "StartAt": "ExtractBibNumber",
         "States": {
-          "ProcessImagesBib": {
-            "Type": "Map",
-            "ItemsPath": "$.chunk",
-            "ResultPath": null,
-            "MaxConcurrency": 100,
-            "Parameters": {
-              "eventId.$": "$.eventId",
-              "fileId.$": "$$.Map.Item.Value.fileId",
-              "requestId.$": "$.requestId"
-            },
-            "Iterator": {
-              "StartAt": "ExtractBibNumber",
-              "States": {
-                "ExtractBibNumber": {
-                  "Type": "Task",
-                  "Resource": "${EXTRACT_BIB_NUMBER_HANDLER_ARN}",
-                  "End": true
-                }
-              }
-            },
+          "ExtractBibNumber": {
+            "Type": "Task",
+            "Resource": "${EXTRACT_BIB_NUMBER_HANDLER_ARN}",
             "End": true
           }
         }
       },
       "Next": "ProcessingComplete"
     },
-    "ProcessChunksFace": {
+    "ProcessImagesFace": {
       "Type": "Map",
-      "ItemsPath": "$.chunks",
-      "ResultPath": null,
-      "MaxConcurrency": 10,
-      "Parameters": {
-        "chunk.$": "$$.Map.Item.Value",
-        "eventId.$": "$.eventId",
-        "requestId.$": "$.requestId"
+      "ItemReader": {
+        "Resource": "arn:aws:states:::s3:getObject",
+        "ReaderConfig": {
+          "InputType": "JSON"
+        },
+        "Parameters": {
+          "Bucket.$": "$.manifestBucket",
+          "Key.$": "$.manifestKey"
+        }
       },
-      "Iterator": {
-        "StartAt": "ProcessImagesFace",
+      "ItemSelector": {
+        "eventId.$": "$.eventId",
+        "requestId.$": "$.requestId",
+        "fileId.$": "$$.Map.Item.Value.fileId"
+      },
+      "MaxConcurrency": 50,
+      "ToleratedFailurePercentage": 5,
+      "ResultPath": null,
+      "Label": "ProcessImagesFace",
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "StartAt": "IndexFaces",
         "States": {
-          "ProcessImagesFace": {
-            "Type": "Map",
-            "ItemsPath": "$.chunk",
-            "ResultPath": null,
-            "MaxConcurrency": 100,
-            "Parameters": {
-              "eventId.$": "$.eventId",
-              "fileId.$": "$$.Map.Item.Value.fileId",
-              "requestId.$": "$.requestId"
-            },
-            "Iterator": {
-              "StartAt": "IndexFaces",
-              "States": {
-                "IndexFaces": {
-                  "Type": "Task",
-                  "Resource": "${INDEX_FACES_HANDLER_ARN}",
-                  "End": true
-                }
-              }
-            },
+          "IndexFaces": {
+            "Type": "Task",
+            "Resource": "${INDEX_FACES_HANDLER_ARN}",
             "End": true
           }
         }

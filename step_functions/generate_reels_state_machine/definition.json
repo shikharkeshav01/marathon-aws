@@ -1,5 +1,5 @@
 {
-  "Comment": "Generate event reels pipeline",
+  "Comment": "Generate event reels pipeline using Distributed Map to read bib list from S3",
   "StartAt": "PrepareImages",
   "States": {
     "PrepareImages": {
@@ -9,17 +9,33 @@
     },
     "GenerateReelsMap": {
       "Type": "Map",
-      "ItemsPath": "$.bibIds",
-      "ResultPath": null,
+      "ItemReader": {
+        "Resource": "arn:aws:states:::s3:getObject",
+        "ReaderConfig": {
+          "InputType": "JSON"
+        },
+        "Parameters": {
+          "Bucket.$": "$.manifestBucket",
+          "Key.$": "$.manifestKey"
+        }
+      },
       "ItemSelector": {
         "requestId.$": "$.requestId",
         "eventId.$": "$.eventId",
         "reelS3Key.$": "$.reelS3Key",
         "reelConfiguration.$": "$.reelConfiguration",
-        "bibId.$": "$$.Map.Item.Value",
+        "bibId.$": "$$.Map.Item.Value.bibId",
         "imageS3Keys.$": "$.imageS3Keys"
       },
-      "Iterator": {
+      "MaxConcurrency": 50,
+      "ToleratedFailurePercentage": 5,
+      "ResultPath": null,
+      "Label": "GenerateReelsMap",
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
         "StartAt": "GenerateReel",
         "States": {
           "GenerateReel": {

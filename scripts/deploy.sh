@@ -171,6 +171,14 @@ put_inline_policy "${lambda_role_name}" "s3" "${s3_policy}"
 rekognition_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["rekognition:CreateCollection","rekognition:DeleteCollection","rekognition:DescribeCollection","rekognition:ListCollections","rekognition:IndexFaces","rekognition:SearchFaces","rekognition:SearchFacesByImage","rekognition:ListFaces","rekognition:DeleteFaces","rekognition:DetectFaces"],"Resource":"*"}]}'
 put_inline_policy "${lambda_role_name}" "rekognition" "${rekognition_policy}"
 
+# Attach policies to Step Functions role
+# Distributed Map requires: Lambda invoke, S3 read (for manifest), and states permissions (for child executions)
+put_inline_policy "${sfn_role_name}" "invoke" "${invoke_policy}"
+sfn_s3_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:ListBucket"],"Resource":["arn:aws:s3:::marathon-photos","arn:aws:s3:::marathon-photos/*"]}]}'
+put_inline_policy "${sfn_role_name}" "s3" "${sfn_s3_policy}"
+sfn_states_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["states:StartExecution","states:DescribeExecution","states:StopExecution","states:RedriveExecution"],"Resource":"*"}]}'
+put_inline_policy "${sfn_role_name}" "states" "${sfn_states_policy}"
+
 # Prepare environment JSON for Lambdas
 env_json=$(cat <<EOF
 {"Variables":{"RAW_BUCKET":"marathon-photos","EVENT_REQUESTS_TABLE":"${requests_table}","EVENT_IMAGES_TABLE":"${images_table}","EVENT_REELS_TABLE":"${reels_table}","EVENT_PARTICIPANTS_TABLE":"${participants_table}","INDEXED_FACES_TABLE":"${indexed_faces_table}","USER_FACES_TABLE":"${user_faces_table}","USER_IMAGE_MATCHES_TABLE":"${user_image_matches_table}","GDRIVE_SA_SSM_PARAM":"google-service-account"}}

@@ -115,7 +115,7 @@ def handler(event, context):
             q=f"'{folder_id}' in parents and mimeType contains 'image/' and trashed=false",
             fields="nextPageToken, files(id)",
             pageToken=page_token
-        ).execute()       
+        ).execute()
 
         for f in res.get("files", []):
             fid = f["id"]
@@ -127,22 +127,27 @@ def handler(event, context):
         if not page_token:
             break
 
-    # Split items into chunks of 500 to avoid Step Functions 256KB limit
-    CHUNK_SIZE = 500
-    chunks = []
-    for i in range(0, len(image_items), CHUNK_SIZE):
-        chunk = image_items[i:i + CHUNK_SIZE]
-        chunks.append(chunk)
+    # Store image list in S3 to avoid Step Functions 256KB payload limit.
+    # The Step Function uses a Distributed Map that reads items directly from S3.
+    items_s3_key = f"{event_id}/manifests/{request_id}.json"
+    s3.put_object(
+        Bucket=RAW_BUCKET,
+        Key=items_s3_key,
+        Body=json.dumps(image_items),
+        ContentType="application/json"
+    )
 
-    # Output is shaped for nested Map states (ItemsPath -> $.chunks)
+    print(f"Stored manifest with {len(image_items)} images in s3://{RAW_BUCKET}/{items_s3_key}")
+
+    # Return only metadata — the Distributed Map reads items from S3 directly
     return {
         "requestId": request_id,
         "eventId": int(event_id),
         "driveFolderUrl": str(gdrive_folder_url),
         "processingMode": processing_mode,
-        "chunks": chunks,
-        "totalImages": len(image_items),
-        "totalChunks": len(chunks)
+        "manifestBucket": RAW_BUCKET,
+        "manifestKey": items_s3_key,
+        "totalImages": len(image_items)
     }
 
 

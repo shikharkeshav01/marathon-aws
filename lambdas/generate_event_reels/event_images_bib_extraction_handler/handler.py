@@ -7,6 +7,10 @@ from boto3.dynamodb.conditions import Key
 # DynamoDB
 ddb = boto3.resource("dynamodb")
 
+# S3
+s3 = boto3.client("s3")
+RAW_BUCKET = os.environ.get("RAW_BUCKET", "marathon-photos")
+
 def get_bib_ids_for_event(event_id: str) -> list[str]:
     bib_table = ddb.Table(os.environ["EVENT_IMAGES_TABLE"])
 
@@ -82,7 +86,7 @@ def main(event, context):
     else:
         item["BibId"] = bib_id
         bib_ids=[bib_id]
-        
+
     if not image_s3_keys:
         table.put_item(
         Item=item
@@ -92,13 +96,29 @@ def main(event, context):
         table.put_item(
         Item=item
         )
-        
+
+    # Store bib IDs in S3 to avoid Step Functions 256KB payload limit
+    # The Step Function uses a Distributed Map that reads items directly from S3
+    items = [{"bibId": bib_id} for bib_id in bib_ids]
+    manifest_key = f"{event_id}/manifests/reels_{request_id}.json"
+    s3.put_object(
+        Bucket=RAW_BUCKET,
+        Key=manifest_key,
+        Body=json.dumps(items),
+        ContentType="application/json"
+    )
+
+    print(f"Stored manifest with {len(bib_ids)} bib IDs in s3://{RAW_BUCKET}/{manifest_key}")
+
+    # Return only metadata — the Distributed Map reads items from S3 directly
     return {
             "requestId": request_id,
             "eventId": event_id,
             "reelS3Key": reel_s3_key,
             "reelConfiguration": reel_configuration,
-            "bibIds": bib_ids,
+            "manifestBucket": RAW_BUCKET,
+            "manifestKey": manifest_key,
+            "totalBibs": len(bib_ids),
             "imageS3Keys": image_s3_keys
         }
         
