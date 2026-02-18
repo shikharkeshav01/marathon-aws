@@ -25,7 +25,8 @@
         "reelS3Key.$": "$.reelS3Key",
         "reelConfiguration.$": "$.reelConfiguration",
         "bibId.$": "$$.Map.Item.Value.bibId",
-        "imageS3Keys.$": "$.imageS3Keys"
+        "imageS3Keys.$": "$.imageS3Keys",
+        "maxImageCount.$": "$.maxImageCount"
       },
       "MaxConcurrency": 50,
       "ToleratedFailurePercentage": 5,

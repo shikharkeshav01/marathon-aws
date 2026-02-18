@@ -169,7 +169,8 @@ def handler(event, context):
             "reelS3Key": reel_s3_key,
             "reelConfiguration": reel_configuration,
             "bibId": bib_id,
-            "imageS3Keys": image_s3_keys
+            "imageS3Keys": image_s3_keys,
+            "maxImageCount": max_image_count (default: 6)
         }
     """
     event_id = event.get("eventId")
@@ -178,6 +179,7 @@ def handler(event, context):
     reel_config = event.get("reelConfiguration")
     bib_id = event.get("bibId")
     image_s3_keys = event.get("imageS3Keys")
+    max_image_count = event.get("maxImageCount", 6)
 
     # Get participant data for template variable substitution
     if bib_id != "-1":
@@ -214,7 +216,9 @@ def handler(event, context):
     if image_s3_keys is None:
         # Get images from database
         filenames = get_images_from_db(event_id, bib_id)
-        print(f"Downloading {len(filenames)} images from database")
+        # Limit to max_image_count
+        filenames = filenames[:max_image_count]
+        print(f"Downloading {len(filenames)} images from database (max: {max_image_count})")
         for filename in filenames:
             local_image_path = os.path.join("/tmp", filename)
             image_s3_key = f"{event_id}/ProcessedImages/{filename}"
@@ -226,8 +230,10 @@ def handler(event, context):
                 raise e
     else:
         # Use provided S3 keys
-        print(f"Downloading {len(image_s3_keys)} images from provided S3 keys")
-        for s3_key in image_s3_keys:
+        # Limit to max_image_count
+        limited_s3_keys = image_s3_keys[:max_image_count]
+        print(f"Downloading {len(limited_s3_keys)} images from provided S3 keys (max: {max_image_count})")
+        for s3_key in limited_s3_keys:
             local_image_path = os.path.join("/tmp", s3_key.split('/')[-1])
             try:
                 s3.download_file(RAW_BUCKET, s3_key, local_image_path)

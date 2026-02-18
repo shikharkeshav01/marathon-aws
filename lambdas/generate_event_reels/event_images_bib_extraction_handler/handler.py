@@ -54,7 +54,8 @@ def main(event, context):
     "reelConfiguration": "ds",
     "reelS3Key": "",
     "bibId": null,
-    "imageS3Keys": []
+    "imageS3Keys": [],
+    "maxImageCount": 6
     }
 
     """
@@ -66,6 +67,7 @@ def main(event, context):
     reel_configuration = event.get("reelConfiguration")
     bib_id = event.get("bibId")
     image_s3_keys = event.get("imageS3Keys")
+    max_image_count = event.get("maxImageCount", 6)
     if not reel_s3_key:
         raise ValueError("Missing required field: reelS3Key")
     if not reel_configuration:
@@ -119,7 +121,8 @@ def main(event, context):
             "manifestBucket": RAW_BUCKET,
             "manifestKey": manifest_key,
             "totalBibs": len(bib_ids),
-            "imageS3Keys": image_s3_keys
+            "imageS3Keys": image_s3_keys,
+            "maxImageCount": max_image_count
         }
         
 
