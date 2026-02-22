@@ -161,10 +161,18 @@ def handler(event, context):
     }
     """
     print(json.dumps(event))
-    
-    email = event.get("email")
-    event_id = event.get("eventId")
-    
+
+    # Handle AWS_PROXY integration: body is a JSON string inside event['body'].
+    # Fall back to event itself for direct invocations (Step Functions, tests, etc.)
+    raw_body = event.get('body')
+    if raw_body:
+        body = json.loads(raw_body) if isinstance(raw_body, str) else raw_body
+    else:
+        body = event
+
+    email = body.get("email")
+    event_id = body.get("eventId")
+
     if not all([email, event_id]):
         return {
             "statusCode": 400,

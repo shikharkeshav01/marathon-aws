@@ -314,13 +314,21 @@ def handler(event, context):
     """
     print(json.dumps(event))
 
+    # Handle AWS_PROXY integration: body is a JSON string inside event['body'].
+    # Fall back to event itself for direct invocations (Step Functions, tests, etc.)
+    raw_body = event.get('body')
+    if raw_body:
+        body = json.loads(raw_body) if isinstance(raw_body, str) else raw_body
+    else:
+        body = event
+
     try:
-        email = event.get("email")
-        phone = event.get("phone")
-        profile_s3_key = event.get("profilePhoto")
-        event_id = event.get("eventId")
-        bib_number = event.get("bibNumber")
-        s3_bucket = event.get("s3Bucket")
+        email = body.get("email")
+        phone = body.get("phone")
+        profile_s3_key = body.get("profilePhoto")
+        event_id = body.get("eventId")
+        bib_number = body.get("bibNumber")
+        s3_bucket = body.get("s3Bucket")
 
         if not all([email, phone, profile_s3_key, event_id]):
             raise ValueError("Missing required parameters: email, phone, profilePhoto, eventId")
@@ -372,7 +380,7 @@ def handler(event, context):
             "statusCode": 400,
             "body": json.dumps({
                 "error": str(e),
-                "email": event.get("email")
+                "email": body.get("email")
             })
         }
     except Exception as e:
@@ -382,7 +390,7 @@ def handler(event, context):
             "statusCode": 500,
             "body": json.dumps({
                 "error": str(e),
-                "email": event.get("email"),
+                "email": body.get("email"),
                 "traceback": traceback.format_exc()
             })
         }
