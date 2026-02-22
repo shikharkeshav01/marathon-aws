@@ -130,7 +130,7 @@ def get_existing_face_id(email):
     return None
 
 
-def index_profile_photo(profile_s3_key, email, s3_bucket=None):
+def index_profile_photo(profile_s3_key, email, s3_bucket=None, image_bytes=None):
     """
     Index user's profile photo to both users-global and marathon-participants collections.
     Also updates User table with indexing status.
@@ -145,12 +145,12 @@ def index_profile_photo(profile_s3_key, email, s3_bucket=None):
     client_id = get_client_id_for_email(email)
 
     try:
-        # Download image from S3
-        local_path = f"/tmp/{email.replace('@', '_')}_profile.jpg"
-        s3.download_file(s3_bucket, profile_s3_key, local_path)
-
-        with open(local_path, 'rb') as image_file:
-            image_bytes = image_file.read()
+        # Download image from S3 only if not already provided
+        if image_bytes is None:
+            local_path = f"/tmp/{email.replace('@', '_')}_profile.jpg"
+            s3.download_file(s3_bucket, profile_s3_key, local_path)
+            with open(local_path, 'rb') as image_file:
+                image_bytes = image_file.read()
 
         # Delete existing faces from both collections before indexing new ones
         delete_existing_faces_from_collection(email, USERS_GLOBAL_COLLECTION)
@@ -221,28 +221,28 @@ def index_profile_photo(profile_s3_key, email, s3_bucket=None):
         raise
 
 
-def search_event_photos(face_id, event_id):
-    """Search for matching faces in event-{eventId} collection."""
+def search_event_photos(image_bytes, event_id):
+    """Search for matching faces in event-{eventId} collection using profile image bytes."""
     event_collection_id = f"event-{event_id}"
-    
+
     # Check if event collection exists
     try:
         rekognition.describe_collection(CollectionId=event_collection_id)
     except rekognition.exceptions.ResourceNotFoundException:
         print(f"[WARN] Event collection {event_collection_id} does not exist yet")
         return []
-    
-    # Search for matching faces
-    response = rekognition.search_faces(
+
+    # Search by image so we're not constrained to a FaceId from the same collection
+    response = rekognition.search_faces_by_image(
         CollectionId=event_collection_id,
-        FaceId=face_id,
+        Image={'Bytes': image_bytes},
         FaceMatchThreshold=FACE_MATCH_THRESHOLD,
         MaxFaces=1000
     )
-    
+
     matches = response.get('FaceMatches', [])
     print(f"[INFO] Found {len(matches)} face matches in {event_collection_id}")
-    
+
     return matches
 
 
@@ -325,6 +325,13 @@ def handler(event, context):
         if not all([email, phone, profile_s3_key, event_id]):
             raise ValueError("Missing required parameters: email, phone, profilePhoto, eventId")
 
+        # Download profile image once — used for both indexing and searching
+        bucket = s3_bucket or RAW_BUCKET
+        local_path = f"/tmp/{email.replace('@', '_')}_profile.jpg"
+        s3.download_file(bucket, profile_s3_key, local_path)
+        with open(local_path, 'rb') as f:
+            profile_image_bytes = f.read()
+
         # Check if user already has a face indexed
         face_id = get_existing_face_id(email)
 
@@ -333,12 +340,13 @@ def handler(event, context):
             # This will index to both users-global and marathon-participants collections
             # and update User table with indexing status
             print(f"[INFO] No existing face found for {email}, indexing profile photo...")
-            face_id = index_profile_photo(profile_s3_key, email, s3_bucket)
+            face_id = index_profile_photo(profile_s3_key, email, s3_bucket, image_bytes=profile_image_bytes)
         else:
             print(f"[INFO] Reusing existing FaceId: {face_id}")
 
-        # Search for matches in event photos
-        matches = search_event_photos(face_id, event_id)
+        # Search for matches in event photos using the profile image bytes directly,
+        # so we are not constrained to a FaceId from the event collection
+        matches = search_event_photos(profile_image_bytes, event_id)
 
         # Store image matches
         if matches:
