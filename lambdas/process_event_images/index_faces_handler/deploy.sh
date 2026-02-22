@@ -5,13 +5,169 @@ set -euo pipefail
 # Can be run standalone or called from main deploy.sh with parameters
 
 LAMBDA_NAME="index_faces_handler"
+LAMBDA_TIMEOUT=300
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Detect if called standalone (no parameters) or from main script
 if [[ $# -eq 0 ]]; then
-  echo >&2 "Error: This script must be called from main deploy.sh with parameters"
-  echo >&2 "Usage: deploy.sh <region> <runtime> <lambda_role_arn> <env_json>"
-  exit 1
+  # Standalone mode - set up everything
+  REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-ap-south-1}}"
+  RUNTIME="${LAMBDA_RUNTIME:-python3.13}"
+
+  # Ensure IAM role exists
+  LAMBDA_ROLE_NAME="lambda-role"
+  if ! aws iam get-role --role-name "${LAMBDA_ROLE_NAME}" >/dev/null 2>&1; then
+    echo >&2 "Creating IAM role ${LAMBDA_ROLE_NAME}..."
+    lambda_assume='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+    aws iam create-role --role-name "${LAMBDA_ROLE_NAME}" --assume-role-policy-document "${lambda_assume}" >/dev/null
+
+    # Attach basic policies
+    logs_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["logs:CreateLogGroup","logs:CreateLogStream","logs:PutLogEvents"],"Resource":"*"}]}'
+    aws iam put-role-policy --role-name "${LAMBDA_ROLE_NAME}" --policy-name "logs" --policy-document "${logs_policy}" >/dev/null
+
+    # Ensure DynamoDB tables exist and attach DDB policy
+    requests_table="EventRequests"
+    images_table="EventImages"
+    reels_table="EventReels"
+    participants_table="EventParticipants"
+    indexed_faces_table="IndexedFaces"
+
+    if ! aws dynamodb describe-table --table-name "${requests_table}" --region "${REGION}" >/dev/null 2>&1; then
+      echo >&2 "Creating DynamoDB table ${requests_table}..."
+      aws dynamodb create-table --table-name "${requests_table}" --billing-mode PAY_PER_REQUEST \
+        --attribute-definitions "AttributeName=RequestId,AttributeType=S" \
+        --key-schema "AttributeName=RequestId,KeyType=HASH" \
+        --region "${REGION}" >/dev/null
+    fi
+
+    if ! aws dynamodb describe-table --table-name "${images_table}" --region "${REGION}" >/dev/null 2>&1; then
+      echo >&2 "Creating DynamoDB table ${images_table}..."
+      aws dynamodb create-table --table-name "${images_table}" --billing-mode PAY_PER_REQUEST \
+        --attribute-definitions "AttributeName=Id,AttributeType=S" "AttributeName=EventId,AttributeType=N" \
+        --key-schema "AttributeName=Id,KeyType=HASH" \
+        --global-secondary-indexes "[{\"IndexName\":\"EventId-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]" \
+        --region "${REGION}" >/dev/null
+    fi
+
+    if ! aws dynamodb describe-table --table-name "${reels_table}" --region "${REGION}" >/dev/null 2>&1; then
+      echo >&2 "Creating DynamoDB table ${reels_table}..."
+      aws dynamodb create-table --table-name "${reels_table}" --billing-mode PAY_PER_REQUEST \
+        --attribute-definitions "AttributeName=EventId,AttributeType=N" "AttributeName=BibId,AttributeType=S" \
+        --key-schema "AttributeName=EventId,KeyType=HASH" "AttributeName=BibId,KeyType=RANGE" \
+        --region "${REGION}" >/dev/null
+    fi
+
+    if ! aws dynamodb describe-table --table-name "${participants_table}" --region "${REGION}" >/dev/null 2>&1; then
+      echo >&2 "Creating DynamoDB table ${participants_table}..."
+      aws dynamodb create-table --table-name "${participants_table}" --billing-mode PAY_PER_REQUEST \
+        --attribute-definitions "AttributeName=EventId,AttributeType=N" "AttributeName=BibId,AttributeType=S" \
+        --key-schema "AttributeName=EventId,KeyType=HASH" "AttributeName=BibId,KeyType=RANGE" \
+        --region "${REGION}" >/dev/null
+    fi
+
+    if ! aws dynamodb describe-table --table-name "${indexed_faces_table}" --region "${REGION}" >/dev/null 2>&1; then
+      echo >&2 "Creating DynamoDB table ${indexed_faces_table}..."
+      aws dynamodb create-table --table-name "${indexed_faces_table}" --billing-mode PAY_PER_REQUEST \
+        --attribute-definitions "AttributeName=FaceId,AttributeType=S" "AttributeName=EventId,AttributeType=N" \
+        --key-schema "AttributeName=FaceId,KeyType=HASH" \
+        --global-secondary-indexes "[{\"IndexName\":\"EventId-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]" \
+        --region "${REGION}" >/dev/null
+    fi
+
+    requests_arn="$(aws dynamodb describe-table --table-name "${requests_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
+    images_arn="$(aws dynamodb describe-table --table-name "${images_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
+    reels_arn="$(aws dynamodb describe-table --table-name "${reels_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
+    participants_arn="$(aws dynamodb describe-table --table-name "${participants_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
+    indexed_faces_arn="$(aws dynamodb describe-table --table-name "${indexed_faces_table}" --region "${REGION}" --query "Table.TableArn" --output text)"
+
+    ddb_policy=$(cat <<EOF
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query","dynamodb:Scan"],"Resource":["${requests_arn}","${requests_arn}/index/*","${images_arn}","${images_arn}/index/*","${reels_arn}","${reels_arn}/index/*","${participants_arn}","${participants_arn}/index/*","${indexed_faces_arn}","${indexed_faces_arn}/index/*"]}]}
+EOF
+)
+    aws iam put-role-policy --role-name "${LAMBDA_ROLE_NAME}" --policy-name "ddb" --policy-document "${ddb_policy}" >/dev/null
+
+    # Add SSM read permissions for service account
+    ssm_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ssm:GetParameter","ssm:GetParameters"],"Resource":"arn:aws:ssm:*:*:parameter/google-service-account"}]}'
+    aws iam put-role-policy --role-name "${LAMBDA_ROLE_NAME}" --policy-name "ssm" --policy-document "${ssm_policy}" >/dev/null
+
+    s3_policy=$(cat <<EOF
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject"],"Resource":"arn:aws:s3:::marathon-photos/*"},{"Effect":"Allow","Action":["s3:ListBucket"],"Resource":"arn:aws:s3:::marathon-photos"}]}
+EOF
+)
+    aws iam put-role-policy --role-name "${LAMBDA_ROLE_NAME}" --policy-name "s3" --policy-document "${s3_policy}" >/dev/null
+
+    rekognition_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["rekognition:IndexFaces","rekognition:CreateCollection","rekognition:DescribeCollection","rekognition:DeleteFaces","rekognition:ListFaces"],"Resource":"*"}]}'
+    aws iam put-role-policy --role-name "${LAMBDA_ROLE_NAME}" --policy-name "rekognition" --policy-document "${rekognition_policy}" >/dev/null
+  else
+    # Role exists, ensure tables exist
+    requests_table="EventRequests"
+    images_table="EventImages"
+    reels_table="EventReels"
+    participants_table="EventParticipants"
+    indexed_faces_table="IndexedFaces"
+
+    if ! aws dynamodb describe-table --table-name "${requests_table}" --region "${REGION}" >/dev/null 2>&1; then
+      echo >&2 "Creating DynamoDB table ${requests_table}..."
+      aws dynamodb create-table --table-name "${requests_table}" --billing-mode PAY_PER_REQUEST \
+        --attribute-definitions "AttributeName=RequestId,AttributeType=S" \
+        --key-schema "AttributeName=RequestId,KeyType=HASH" \
+        --region "${REGION}" >/dev/null
+    fi
+
+    if ! aws dynamodb describe-table --table-name "${images_table}" --region "${REGION}" >/dev/null 2>&1; then
+      echo >&2 "Creating DynamoDB table ${images_table}..."
+      aws dynamodb create-table --table-name "${images_table}" --billing-mode PAY_PER_REQUEST \
+        --attribute-definitions "AttributeName=Id,AttributeType=S" "AttributeName=EventId,AttributeType=N" \
+        --key-schema "AttributeName=Id,KeyType=HASH" \
+        --global-secondary-indexes "[{\"IndexName\":\"EventId-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]" \
+        --region "${REGION}" >/dev/null
+    fi
+
+    if ! aws dynamodb describe-table --table-name "${reels_table}" --region "${REGION}" >/dev/null 2>&1; then
+      echo >&2 "Creating DynamoDB table ${reels_table}..."
+      aws dynamodb create-table --table-name "${reels_table}" --billing-mode PAY_PER_REQUEST \
+        --attribute-definitions "AttributeName=EventId,AttributeType=N" "AttributeName=BibId,AttributeType=S" \
+        --key-schema "AttributeName=EventId,KeyType=HASH" "AttributeName=BibId,KeyType=RANGE" \
+        --region "${REGION}" >/dev/null
+    fi
+
+    if ! aws dynamodb describe-table --table-name "${participants_table}" --region "${REGION}" >/dev/null 2>&1; then
+      echo >&2 "Creating DynamoDB table ${participants_table}..."
+      aws dynamodb create-table --table-name "${participants_table}" --billing-mode PAY_PER_REQUEST \
+        --attribute-definitions "AttributeName=EventId,AttributeType=N" "AttributeName=BibId,AttributeType=S" \
+        --key-schema "AttributeName=EventId,KeyType=HASH" "AttributeName=BibId,KeyType=RANGE" \
+        --region "${REGION}" >/dev/null
+    fi
+
+    if ! aws dynamodb describe-table --table-name "${indexed_faces_table}" --region "${REGION}" >/dev/null 2>&1; then
+      echo >&2 "Creating DynamoDB table ${indexed_faces_table}..."
+      aws dynamodb create-table --table-name "${indexed_faces_table}" --billing-mode PAY_PER_REQUEST \
+        --attribute-definitions "AttributeName=FaceId,AttributeType=S" "AttributeName=EventId,AttributeType=N" \
+        --key-schema "AttributeName=FaceId,KeyType=HASH" \
+        --global-secondary-indexes "[{\"IndexName\":\"EventId-index\",\"KeySchema\":[{\"AttributeName\":\"EventId\",\"KeyType\":\"HASH\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}]" \
+        --region "${REGION}" >/dev/null
+    fi
+
+    # Ensure SSM policy exists
+    ssm_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ssm:GetParameter","ssm:GetParameters"],"Resource":"arn:aws:ssm:*:*:parameter/google-service-account"}]}'
+    aws iam put-role-policy --role-name "${LAMBDA_ROLE_NAME}" --policy-name "ssm" --policy-document "${ssm_policy}" >/dev/null
+
+    s3_policy=$(cat <<EOF
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject"],"Resource":"arn:aws:s3:::marathon-photos/*"},{"Effect":"Allow","Action":["s3:ListBucket"],"Resource":"arn:aws:s3:::marathon-photos"}]}
+EOF
+)
+    aws iam put-role-policy --role-name "${LAMBDA_ROLE_NAME}" --policy-name "s3" --policy-document "${s3_policy}" >/dev/null
+
+    rekognition_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["rekognition:IndexFaces","rekognition:CreateCollection","rekognition:DescribeCollection","rekognition:DeleteFaces","rekognition:ListFaces"],"Resource":"*"}]}'
+    aws iam put-role-policy --role-name "${LAMBDA_ROLE_NAME}" --policy-name "rekognition" --policy-document "${rekognition_policy}" >/dev/null
+  fi
+
+  LAMBDA_ROLE_ARN="$(aws iam get-role --role-name "${LAMBDA_ROLE_NAME}" --query 'Role.Arn' --output text)"
+  indexed_faces_table="IndexedFaces"
+  env_json=$(cat <<EOF
+{"Variables":{"RAW_BUCKET":"marathon-photos","INDEXED_FACES_TABLE":"${indexed_faces_table}","GDRIVE_SA_SSM_PARAM":"google-service-account"}}
+EOF
+)
 else
   # Called from main script with parameters
   REGION="${1}"
@@ -84,10 +240,10 @@ if aws lambda get-function --function-name "${LAMBDA_NAME}" --region "${REGION}"
   aws lambda update-function-code --function-name "${LAMBDA_NAME}" --zip-file "fileb://${ZIP_FILE}" --region "${REGION}" >/dev/null
   wait_for_lambda_ready "${LAMBDA_NAME}"
   # Update configuration
-  aws lambda update-function-configuration --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --runtime "${RUNTIME}" --handler handler.handler --environment "${env_json}" --region "${REGION}" >/dev/null
+  aws lambda update-function-configuration --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --runtime "${RUNTIME}" --handler handler.handler --environment "${env_json}" --timeout "${LAMBDA_TIMEOUT}" --region "${REGION}" >/dev/null
 else
   echo >&2 "Creating ${LAMBDA_NAME}..."
-  aws lambda create-function --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --runtime "${RUNTIME}" --handler handler.handler --zip-file "fileb://${ZIP_FILE}" --environment "${env_json}" --region "${REGION}" >/dev/null
+  aws lambda create-function --function-name "${LAMBDA_NAME}" --role "${LAMBDA_ROLE_ARN}" --runtime "${RUNTIME}" --handler handler.handler --zip-file "fileb://${ZIP_FILE}" --environment "${env_json}" --timeout "${LAMBDA_TIMEOUT}" --region "${REGION}" >/dev/null
 fi
 
 # Get Lambda ARN
