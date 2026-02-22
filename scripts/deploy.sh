@@ -181,7 +181,7 @@ put_inline_policy "${sfn_role_name}" "states" "${sfn_states_policy}"
 
 # Prepare environment JSON for Lambdas
 env_json=$(cat <<EOF
-{"Variables":{"RAW_BUCKET":"marathon-photos","EVENT_REQUESTS_TABLE":"${requests_table}","EVENT_IMAGES_TABLE":"${images_table}","EVENT_REELS_TABLE":"${reels_table}","EVENT_PARTICIPANTS_TABLE":"${participants_table}","INDEXED_FACES_TABLE":"${indexed_faces_table}","USER_FACES_TABLE":"${user_faces_table}","USER_IMAGE_MATCHES_TABLE":"${user_image_matches_table}","GDRIVE_SA_SSM_PARAM":"google-service-account"}}
+{"Variables":{"RAW_BUCKET":"marathon-photos","EVENT_REQUESTS_TABLE":"${requests_table}","EVENT_IMAGES_TABLE":"${images_table}","EVENT_REELS_TABLE":"${reels_table}","EVENT_PARTICIPANTS_TABLE":"${participants_table}","INDEXED_FACES_TABLE":"${indexed_faces_table}","USER_FACES_TABLE":"${user_faces_table}","USER_IMAGE_MATCHES_TABLE":"${user_image_matches_table}","USER_TABLE":"User","REKOGNITION_COLLECTION_ID":"marathon-participants","GDRIVE_SA_SSM_PARAM":"google-service-account"}}
 EOF
 )
 

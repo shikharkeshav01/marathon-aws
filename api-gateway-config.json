@@ -1,0 +1,230 @@
+{
+  "apiGateway": {
+    "id": "rtz96eyzva",
+    "name": "marathon",
+    "region": "ap-south-1",
+    "createdDate": "2025-12-18T16:53:38+05:30",
+    "apiKeySource": "HEADER",
+    "endpointConfiguration": {
+      "types": ["REGIONAL"],
+      "ipAddressType": "ipv4"
+    },
+    "disableExecuteApiEndpoint": false,
+    "rootResourceId": "0ztpkpvfm8",
+    "securityPolicy": "SecurityPolicy_TLS13_1_3_2025_09",
+    "endpointAccessMode": "BASIC",
+    "apiStatus": "AVAILABLE",
+    "baseUrl": "https://rtz96eyzva.execute-api.ap-south-1.amazonaws.com/prod"
+  },
+  "stage": {
+    "stageName": "prod",
+    "deploymentId": "r43cq8",
+    "cacheClusterEnabled": false,
+    "tracingEnabled": false,
+    "createdDate": "2025-12-18T17:17:53+05:30",
+    "lastUpdatedDate": "2026-01-08T07:30:28+05:30",
+    "methodSettings": {
+      "*/*": {
+        "metricsEnabled": false,
+        "loggingLevel": "INFO",
+        "dataTraceEnabled": false,
+        "throttlingBurstLimit": 5000,
+        "throttlingRateLimit": 10000.0,
+        "cachingEnabled": false
+      }
+    }
+  },
+  "security": {
+    "type": "apiKey",
+    "name": "x-api-key",
+    "in": "header"
+  },
+  "iamRole": {
+    "credentials": "arn:aws:iam::963311703323:role/ApiGatewayMarathonStepFunctionsInvokeRole"
+  },
+  "endpoints": [
+    {
+      "path": "/createEvent",
+      "resourceId": "btyms0",
+      "methods": {
+        "POST": {
+          "security": ["api_key"],
+          "integration": {
+            "type": "AWS",
+            "httpMethod": "POST",
+            "uri": "arn:aws:apigateway:ap-south-1:states:action/StartExecution",
+            "credentials": "arn:aws:iam::963311703323:role/ApiGatewayMarathonStepFunctionsInvokeRole",
+            "stateMachine": "arn:aws:states:ap-south-1:963311703323:stateMachine:marathon-image-extraction",
+            "requestTemplate": "#set($body = $input.json('$'))\n{\n  \"stateMachineArn\": \"arn:aws:states:ap-south-1:963311703323:stateMachine:marathon-image-extraction\",\n  \"name\": \"$context.requestId\",\n  \"input\": \"$util.escapeJavaScript($body)\"\n}",
+            "passthroughBehavior": "WHEN_NO_MATCH",
+            "timeoutInMillis": 29000,
+            "integrationResponses": {
+              "200": {
+                "statusCode": "200",
+                "responseParameters": {
+                  "method.response.header.Access-Control-Allow-Origin": "'*'"
+                }
+              }
+            }
+          }
+        },
+        "OPTIONS": {
+          "integration": {
+            "type": "MOCK",
+            "requestTemplate": "{\"statusCode\": 200}",
+            "integrationResponses": {
+              "200": {
+                "statusCode": "200",
+                "responseParameters": {
+                  "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+                  "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,POST'",
+                  "method.response.header.Access-Control-Allow-Origin": "'*'"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "/process-event-images",
+      "resourceId": "us1du1",
+      "methods": {
+        "POST": {
+          "security": ["api_key"],
+          "integration": {
+            "type": "AWS",
+            "httpMethod": "POST",
+            "uri": "arn:aws:apigateway:ap-south-1:states:action/StartExecution",
+            "credentials": "arn:aws:iam::963311703323:role/ApiGatewayMarathonStepFunctionsInvokeRole",
+            "stateMachine": "arn:aws:states:ap-south-1:963311703323:stateMachine:process-images-state-machine",
+            "requestTemplate": "#set($body = $input.json('$'))\n{\n  \"stateMachineArn\": \"arn:aws:states:ap-south-1:963311703323:stateMachine:process-images-state-machine\",\n  \"name\": \"$context.requestId\",\n  \"input\": \"$util.escapeJavaScript($body)\"\n}",
+            "passthroughBehavior": "WHEN_NO_MATCH",
+            "timeoutInMillis": 29000,
+            "integrationResponses": {
+              "200": {
+                "statusCode": "200",
+                "responseParameters": {
+                  "method.response.header.Access-Control-Allow-Origin": "'*'"
+                }
+              }
+            }
+          }
+        },
+        "OPTIONS": {
+          "integration": {
+            "type": "MOCK",
+            "requestTemplate": "{\"statusCode\": 200}",
+            "integrationResponses": {
+              "200": {
+                "statusCode": "200",
+                "responseParameters": {
+                  "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+                  "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,POST'",
+                  "method.response.header.Access-Control-Allow-Origin": "'*'"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "/generate-event-reels",
+      "resourceId": "wzokja",
+      "methods": {
+        "POST": {
+          "security": ["api_key"],
+          "integration": {
+            "type": "AWS",
+            "httpMethod": "POST",
+            "uri": "arn:aws:apigateway:ap-south-1:states:action/StartExecution",
+            "credentials": "arn:aws:iam::963311703323:role/ApiGatewayMarathonStepFunctionsInvokeRole",
+            "stateMachine": "arn:aws:states:ap-south-1:963311703323:stateMachine:generate-reels-state-machine",
+            "requestTemplate": "#set($body = $input.json('$'))\n{\n  \"stateMachineArn\": \"arn:aws:states:ap-south-1:963311703323:stateMachine:generate-reels-state-machine\",\n  \"name\": \"$context.requestId\",\n  \"input\": \"$util.escapeJavaScript($body)\"\n}",
+            "passthroughBehavior": "WHEN_NO_MATCH",
+            "timeoutInMillis": 29000,
+            "integrationResponses": {
+              "200": {
+                "statusCode": "200",
+                "responseParameters": {
+                  "method.response.header.Access-Control-Allow-Origin": "'*'"
+                }
+              }
+            }
+          }
+        },
+        "OPTIONS": {
+          "integration": {
+            "type": "MOCK",
+            "requestTemplate": "{\"statusCode\": 200}",
+            "integrationResponses": {
+              "200": {
+                "statusCode": "200",
+                "responseParameters": {
+                  "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+                  "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,POST'",
+                  "method.response.header.Access-Control-Allow-Origin": "'*'"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "/register-user-face",
+      "resourceId": "ql1cq3",
+      "methods": {
+        "POST": {
+          "security": ["api_key"],
+          "integration": {
+            "type": "AWS_PROXY",
+            "httpMethod": "POST",
+            "uri": "arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ap-south-1:963311703323:function:register_user_face_handler/invocations",
+            "lambdaFunction": "arn:aws:lambda:ap-south-1:963311703323:function:register_user_face_handler",
+            "passthroughBehavior": "WHEN_NO_MATCH",
+            "timeoutInMillis": 29000,
+            "description": "Registers user face and searches for matches in event photos. Expects: {email, phone, profilePhoto, eventId, bibNumber?}"
+          }
+        },
+        "OPTIONS": {
+          "integration": {
+            "type": "MOCK",
+            "requestTemplate": "{\"statusCode\": 200}",
+            "integrationResponses": {
+              "200": {
+                "statusCode": "200",
+                "responseParameters": {
+                  "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+                  "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,POST'",
+                  "method.response.header.Access-Control-Allow-Origin": "'*'"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "lambdaFunctions": {
+    "register_user_face_handler": {
+      "arn": "arn:aws:lambda:ap-south-1:963311703323:function:register_user_face_handler",
+      "endpoint": "/register-user-face"
+    }
+  },
+  "stepFunctions": {
+    "marathon-image-extraction": {
+      "arn": "arn:aws:states:ap-south-1:963311703323:stateMachine:marathon-image-extraction",
+      "endpoint": "/createEvent"
+    },
+    "process-images-state-machine": {
+      "arn": "arn:aws:states:ap-south-1:963311703323:stateMachine:process-images-state-machine",
+      "endpoint": "/process-event-images"
+    },
+    "generate-reels-state-machine": {
+      "arn": "arn:aws:states:ap-south-1:963311703323:stateMachine:generate-reels-state-machine",
+      "endpoint": "/generate-event-reels"
+    }
+  }
+}

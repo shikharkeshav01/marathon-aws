@@ -31,8 +31,12 @@ def ensure_collection_exists(collection_id):
         print(f"[INFO] Collection {collection_id} already exists")
     except rekognition.exceptions.ResourceNotFoundException:
         print(f"[INFO] Creating collection {collection_id}")
-        rekognition.create_collection(CollectionId=collection_id)
-        print(f"[SUCCESS] Created collection {collection_id}")
+        try:
+            rekognition.create_collection(CollectionId=collection_id)
+            print(f"[SUCCESS] Created collection {collection_id}")
+        except rekognition.exceptions.ResourceAlreadyExistsException:
+            # Another concurrent invocation created the collection first — this is fine
+            print(f"[INFO] Collection {collection_id} was created by a concurrent invocation")
 
 
 def download_image_from_drive(file_id):
