@@ -173,6 +173,40 @@
       }
     },
     {
+      "path": "/validate-profile-image",
+      "resourceId": "b2h6xe",
+      "methods": {
+        "POST": {
+          "security": ["api_key"],
+          "integration": {
+            "type": "AWS_PROXY",
+            "httpMethod": "POST",
+            "uri": "arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ap-south-1:963311703323:function:validate_profile_image_handler/invocations",
+            "lambdaFunction": "arn:aws:lambda:ap-south-1:963311703323:function:validate_profile_image_handler",
+            "passthroughBehavior": "WHEN_NO_MATCH",
+            "timeoutInMillis": 29000,
+            "description": "Validates a profile image has exactly one face using Rekognition. Expects: {s3Key, bucket?}"
+          }
+        },
+        "OPTIONS": {
+          "integration": {
+            "type": "MOCK",
+            "requestTemplate": "{\"statusCode\": 200}",
+            "integrationResponses": {
+              "200": {
+                "statusCode": "200",
+                "responseParameters": {
+                  "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+                  "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,POST'",
+                  "method.response.header.Access-Control-Allow-Origin": "'*'"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "path": "/register-user-face",
       "resourceId": "ql1cq3",
       "methods": {
@@ -211,6 +245,10 @@
     "register_user_face_handler": {
       "arn": "arn:aws:lambda:ap-south-1:963311703323:function:register_user_face_handler",
       "endpoint": "/register-user-face"
+    },
+    "validate_profile_image_handler": {
+      "arn": "arn:aws:lambda:ap-south-1:963311703323:function:validate_profile_image_handler",
+      "endpoint": "/validate-profile-image"
     }
   },
   "stepFunctions": {
