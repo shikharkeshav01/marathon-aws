@@ -365,6 +365,7 @@ def handler(event, context):
 
         return {
             "statusCode": 200,
+            "headers": {"Access-Control-Allow-Origin": "*"},
             "body": json.dumps({
                 "message": "User registered successfully",
                 "email": email,
@@ -378,6 +379,7 @@ def handler(event, context):
         print(f"[ERROR] Validation error: {e}")
         return {
             "statusCode": 400,
+            "headers": {"Access-Control-Allow-Origin": "*"},
             "body": json.dumps({
                 "error": str(e),
                 "email": body.get("email")
@@ -388,6 +390,7 @@ def handler(event, context):
         print(traceback.format_exc())
         return {
             "statusCode": 500,
+            "headers": {"Access-Control-Allow-Origin": "*"},
             "body": json.dumps({
                 "error": str(e),
                 "email": body.get("email"),
