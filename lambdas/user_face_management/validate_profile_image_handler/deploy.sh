@@ -26,8 +26,8 @@ if [[ $# -eq 0 ]]; then
     aws iam put-role-policy --role-name "${LAMBDA_ROLE_NAME}" --policy-name "logs" --policy-document "${logs_policy}" >/dev/null
   fi
 
-  # Ensure Rekognition policy exists
-  rekognition_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["rekognition:DetectFaces"],"Resource":"*"}]}'
+  # Ensure Rekognition policy exists (full set required by all lambdas sharing this role)
+  rekognition_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["rekognition:CreateCollection","rekognition:DeleteCollection","rekognition:DescribeCollection","rekognition:ListCollections","rekognition:IndexFaces","rekognition:SearchFaces","rekognition:SearchFacesByImage","rekognition:ListFaces","rekognition:DeleteFaces","rekognition:DetectFaces"],"Resource":"*"}]}'
   aws iam put-role-policy --role-name "${LAMBDA_ROLE_NAME}" --policy-name "rekognition" --policy-document "${rekognition_policy}" >/dev/null
 
   # Ensure S3 read policy exists
