@@ -1,6 +1,7 @@
 # processor.py
 import os, json, boto3, traceback, mimetypes, re, copy
 from datetime import datetime
+from PIL import Image
 
 from reel_generation import overlay_images_on_video
 from boto3.dynamodb.conditions import Key, Attr
@@ -141,6 +142,13 @@ def generate_reel_local(
     return output_path
 
 
+def is_landscape(image_path: str) -> bool:
+    """Return True if the image is in landscape orientation (width > height)."""
+    with Image.open(image_path) as img:
+        width, height = img.size
+    return width > height
+
+
 def get_images_from_db(event_id, bib_id):
     table = ddb.Table(os.environ["EVENT_IMAGES_TABLE"])
     response = table.query(
@@ -224,6 +232,9 @@ def handler(event, context):
             image_s3_key = f"{event_id}/ProcessedImages/{filename}"
             try:
                 s3.download_file(RAW_BUCKET, image_s3_key, local_image_path)
+                if is_landscape(local_image_path):
+                    print(f"Skipping landscape image: {filename}")
+                    continue
                 local_image_paths.append(local_image_path)
             except Exception as e:
                 print(f"Error downloading image {filename}: {e}")

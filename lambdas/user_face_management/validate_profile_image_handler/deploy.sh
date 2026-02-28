@@ -30,9 +30,9 @@ if [[ $# -eq 0 ]]; then
   rekognition_policy='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["rekognition:CreateCollection","rekognition:DeleteCollection","rekognition:DescribeCollection","rekognition:ListCollections","rekognition:IndexFaces","rekognition:SearchFaces","rekognition:SearchFacesByImage","rekognition:ListFaces","rekognition:DeleteFaces","rekognition:DetectFaces"],"Resource":"*"}]}'
   aws iam put-role-policy --role-name "${LAMBDA_ROLE_NAME}" --policy-name "rekognition" --policy-document "${rekognition_policy}" >/dev/null
 
-  # Ensure S3 read policy exists
+  # Ensure S3 policy exists (full set required by all lambdas sharing this role)
   s3_policy=$(cat <<EOF
-{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::marathon-photos/*"}]}
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject"],"Resource":"arn:aws:s3:::marathon-photos/*"},{"Effect":"Allow","Action":["s3:ListBucket"],"Resource":"arn:aws:s3:::marathon-photos"}]}
 EOF
 )
   aws iam put-role-policy --role-name "${LAMBDA_ROLE_NAME}" --policy-name "s3" --policy-document "${s3_policy}" >/dev/null
