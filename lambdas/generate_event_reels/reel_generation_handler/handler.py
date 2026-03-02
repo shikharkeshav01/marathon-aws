@@ -258,6 +258,13 @@ def handler(event, context):
     if image_s3_keys is None:
         # Get images from database (EventImages + UserImageMatches fallback)
         entries = get_images_from_db(event_id, bib_id, email, max_image_count)
+        if not entries:
+            print(f"No images found for bibId={bib_id} eventId={event_id}, skipping reel generation")
+            return {
+                "eventId": event_id,
+                "ok": False,
+                "error": f"No images found for bibId={bib_id} in event {event_id}"
+            }
         print(f"Downloading {len(entries)} images from database (max: {max_image_count})")
         for entry in entries:
             if isinstance(entry, dict):
@@ -290,6 +297,14 @@ def handler(event, context):
             except Exception as e:
                 print(f"Error downloading image {s3_key}: {e}")
                 raise e
+
+    if not local_image_paths:
+        print(f"No images found for bibId={bib_id} eventId={event_id}, skipping reel generation")
+        return {
+            "eventId": event_id,
+            "ok": False,
+            "error": f"No images found for bibId={bib_id} in event {event_id}"
+        }
 
     # Generate reel using core logic
     output_path = os.path.join("/tmp", f"{bib_id}.mp4")
