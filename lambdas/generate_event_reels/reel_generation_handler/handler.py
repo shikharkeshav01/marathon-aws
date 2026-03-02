@@ -149,14 +149,38 @@ def is_landscape(image_path: str) -> bool:
     return width > height
 
 
-def get_images_from_db(event_id, bib_id):
+def get_images_from_db(event_id, bib_id, email, max_image_count):
     table = ddb.Table(os.environ["EVENT_IMAGES_TABLE"])
     response = table.query(
         IndexName='EventId-index',
         KeyConditionExpression=Key('EventId').eq(event_id),
         FilterExpression=Attr('BibId').eq(str(bib_id))
     )
-    return [item['Filename'] for item in response.get('Items', [])]
+    seen = set()
+    filenames = []
+    for item in response.get('Items', []):
+        name = item['Filename']
+        if name not in seen:
+            seen.add(name)
+            filenames.append(name)
+
+    remaining = max_image_count - len(filenames)
+    if remaining > 0 and email:
+        user_image_table = ddb.Table(os.environ["USER_IMAGE_MATCHES_TABLE"])
+        user_response = user_image_table.query(
+            KeyConditionExpression=Key('Email').eq(email),
+            FilterExpression=Attr('EventId').eq(event_id)
+        )
+        for item in user_response.get('Items', []):
+            if remaining <= 0:
+                break
+            key = item['ImageS3Key']
+            if key not in seen:
+                seen.add(key)
+                filenames.append({"s3Key": key})
+                remaining -= 1
+
+    return filenames
 
 
 def get_participants_from_db(event_id, bib_id):
@@ -186,6 +210,7 @@ def handler(event, context):
     reel_s3_key = event.get("reelS3Key")
     reel_config = event.get("reelConfiguration")
     bib_id = event.get("bibId")
+    email = event.get("email")
     image_s3_keys = event.get("imageS3Keys")
     max_image_count = event.get("maxImageCount", 6)
 
@@ -222,22 +247,26 @@ def handler(event, context):
     # Download images from S3
     local_image_paths = []
     if image_s3_keys is None:
-        # Get images from database
-        filenames = get_images_from_db(event_id, bib_id)
-        # Limit to max_image_count
-        filenames = filenames[:max_image_count]
-        print(f"Downloading {len(filenames)} images from database (max: {max_image_count})")
-        for filename in filenames:
-            local_image_path = os.path.join("/tmp", filename)
-            image_s3_key = f"{event_id}/ProcessedImages/{filename}"
+        # Get images from database (EventImages + UserImageMatches fallback)
+        entries = get_images_from_db(event_id, bib_id, email, max_image_count)
+        print(f"Downloading {len(entries)} images from database (max: {max_image_count})")
+        for entry in entries:
+            if isinstance(entry, dict):
+                # Extra image from UserImageMatches — already a full S3 key
+                image_s3_key = entry["s3Key"]
+                local_image_path = os.path.join("/tmp", image_s3_key.split('/')[-1])
+            else:
+                # Standard bib image from EventImages — build key from filename
+                image_s3_key = f"{event_id}/ProcessedImages/{entry}"
+                local_image_path = os.path.join("/tmp", entry)
             try:
                 s3.download_file(RAW_BUCKET, image_s3_key, local_image_path)
                 if is_landscape(local_image_path):
-                    print(f"Skipping landscape image: {filename}")
+                    print(f"Skipping landscape image: {image_s3_key}")
                     continue
                 local_image_paths.append(local_image_path)
             except Exception as e:
-                print(f"Error downloading image {filename}: {e}")
+                print(f"Error downloading image {image_s3_key}: {e}")
                 raise e
     else:
         # Use provided S3 keys

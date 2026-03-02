@@ -25,6 +25,7 @@
         "reelS3Key.$": "$.reelS3Key",
         "reelConfiguration.$": "$.reelConfiguration",
         "bibId.$": "$$.Map.Item.Value.bibId",
+        "email.$": "$$.Map.Item.Value.email",
         "imageS3Keys.$": "$.imageS3Keys",
         "maxImageCount.$": "$.maxImageCount"
       },

@@ -11,34 +11,35 @@ ddb = boto3.resource("dynamodb")
 s3 = boto3.client("s3")
 RAW_BUCKET = os.environ.get("RAW_BUCKET", "marathon-photos")
 
-def get_bib_ids_for_event(event_id: str) -> list[str]:
-    bib_table = ddb.Table(os.environ["EVENT_IMAGES_TABLE"])
+def get_participants_for_event(event_id) -> list[dict]:
+    participants_table = ddb.Table(os.environ["EVENT_PARTICIPANTS_TABLE"])
 
-    bib_ids = set()
+    participants = {}
     last_key = None
-
 
     while True:
         kwargs = {
-            "IndexName": "EventId-index",
-            "KeyConditionExpression": Key("EventId").eq(event_id),
-            # "ProjectionExpression": "BibId",
+            "KeyConditionExpression": Key("EventId").eq(int(event_id)),
         }
         if last_key:
             kwargs["ExclusiveStartKey"] = last_key
 
-        resp = bib_table.query(**kwargs)
+        resp = participants_table.query(**kwargs)
 
         for item in resp.get("Items", []):
             bib = item.get("BibId")
             if bib:
-                bib_ids.add(str(bib))
+                entry = {"bibId": str(bib)}
+                email = item.get("Email")
+                if email:
+                    entry["email"] = email
+                participants[str(bib)] = entry
 
         last_key = resp.get("LastEvaluatedKey")
         if not last_key:
             break
 
-    return sorted(bib_ids)
+    return [participants[k] for k in sorted(participants)]
 
 
 
@@ -84,33 +85,29 @@ def main(event, context):
         }
 
     if not bib_id:
-        bib_ids=get_bib_ids_for_event(event_id)
+        participants = get_participants_for_event(event_id)
     else:
         item["BibId"] = bib_id
-        bib_ids=[bib_id]
+        single = {"bibId": str(bib_id)}
+        participants = [single]
 
     if not image_s3_keys:
-        table.put_item(
-        Item=item
-    )
+        table.put_item(Item=item)
     else:
         item["ImageS3Keys"] = image_s3_keys
-        table.put_item(
-        Item=item
-        )
+        table.put_item(Item=item)
 
-    # Store bib IDs in S3 to avoid Step Functions 256KB payload limit
+    # Store participants in S3 to avoid Step Functions 256KB payload limit
     # The Step Function uses a Distributed Map that reads items directly from S3
-    items = [{"bibId": bib_id} for bib_id in bib_ids]
     manifest_key = f"{event_id}/manifests/reels_{request_id}.json"
     s3.put_object(
         Bucket=RAW_BUCKET,
         Key=manifest_key,
-        Body=json.dumps(items),
+        Body=json.dumps(participants),
         ContentType="application/json"
     )
 
-    print(f"Stored manifest with {len(bib_ids)} bib IDs in s3://{RAW_BUCKET}/{manifest_key}")
+    print(f"Stored manifest with {len(participants)} participants in s3://{RAW_BUCKET}/{manifest_key}")
 
     # Return only metadata — the Distributed Map reads items from S3 directly
     return {
@@ -120,7 +117,7 @@ def main(event, context):
             "reelConfiguration": reel_configuration,
             "manifestBucket": RAW_BUCKET,
             "manifestKey": manifest_key,
-            "totalBibs": len(bib_ids),
+            "totalBibs": len(participants),
             "imageS3Keys": image_s3_keys,
             "maxImageCount": max_image_count
         }
