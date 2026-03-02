@@ -84,8 +84,7 @@ def main(event, context):
         participants = get_participants_for_event(event_id)
     else:
         item["BibId"] = bib_id
-        single = {"bibId": str(bib_id)}
-        participants = [single]
+        participants = [{"bibId": str(bib_id), "email": ""}]
 
     if not image_s3_keys:
         table.put_item(Item=item)
