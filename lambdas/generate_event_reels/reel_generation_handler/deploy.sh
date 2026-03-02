@@ -148,8 +148,9 @@ EOF
   images_table="EventImages"
   reels_table="EventReels"
   participants_table="EventParticipants"
+  user_image_matches_table="UserImageMatches"
   env_json=$(cat <<EOF
-{"Variables":{"RAW_BUCKET":"marathon-photos","EVENT_REQUESTS_TABLE":"${requests_table}","EVENT_IMAGES_TABLE":"${images_table}","EVENT_REELS_TABLE":"${reels_table}","EVENT_PARTICIPANTS_TABLE":"${participants_table}","GDRIVE_SA_SSM_PARAM":"google-service-account"}}
+{"Variables":{"RAW_BUCKET":"marathon-photos","EVENT_REQUESTS_TABLE":"${requests_table}","EVENT_IMAGES_TABLE":"${images_table}","EVENT_REELS_TABLE":"${reels_table}","EVENT_PARTICIPANTS_TABLE":"${participants_table}","USER_IMAGE_MATCHES_TABLE":"${user_image_matches_table}","GDRIVE_SA_SSM_PARAM":"google-service-account"}}
 EOF
 )
 else

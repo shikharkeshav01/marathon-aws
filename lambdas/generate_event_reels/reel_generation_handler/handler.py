@@ -164,6 +164,8 @@ def get_images_from_db(event_id, bib_id, email, max_image_count):
             seen.add(name)
             filenames.append(name)
 
+    print(f"[get_images_from_db] EventImages query for eventId={event_id} bibId={bib_id}: {len(filenames)} unique filenames: {filenames}")
+
     remaining = max_image_count - len(filenames)
     if remaining > 0 and email:
         user_image_table = ddb.Table(os.environ["USER_IMAGE_MATCHES_TABLE"])
@@ -171,6 +173,7 @@ def get_images_from_db(event_id, bib_id, email, max_image_count):
             KeyConditionExpression=Key('Email').eq(email),
             FilterExpression=Attr('EventId').eq(event_id)
         )
+        extra_keys = []
         for item in user_response.get('Items', []):
             if remaining <= 0:
                 break
@@ -178,8 +181,14 @@ def get_images_from_db(event_id, bib_id, email, max_image_count):
             if key not in seen:
                 seen.add(key)
                 filenames.append({"s3Key": key})
+                extra_keys.append(key)
                 remaining -= 1
 
+        print(f"[get_images_from_db] UserImageMatches query for email={email} eventId={event_id}: {len(extra_keys)} extra keys: {extra_keys}")
+    else:
+        print(f"[get_images_from_db] Skipping UserImageMatches (remaining={remaining}, email={email!r})")
+
+    print(f"[get_images_from_db] Total entries returned: {len(filenames)}")
     return filenames
 
 
