@@ -29,11 +29,7 @@ def get_participants_for_event(event_id) -> list[dict]:
         for item in resp.get("Items", []):
             bib = item.get("BibId")
             if bib:
-                entry = {"bibId": str(bib)}
-                email = item.get("Email")
-                if email:
-                    entry["email"] = email
-                participants[str(bib)] = entry
+                participants[str(bib)] = {"bibId": str(bib), "email": item.get("Email")}
 
         last_key = resp.get("LastEvaluatedKey")
         if not last_key:
