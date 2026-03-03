@@ -33,6 +33,7 @@ ddb = boto3.resource("dynamodb")
 table = ddb.Table(os.environ["EVENT_REQUESTS_TABLE"])  # keep env var name as-is
 participants_table = ddb.Table(os.environ.get("EVENT_PARTICIPANTS_TABLE", "EventParticipants"))
 s3 = boto3.client("s3")
+rekognition = boto3.client("rekognition")
 RAW_BUCKET = os.environ["RAW_BUCKET"]
 
 
@@ -48,6 +49,21 @@ creds = service_account.Credentials.from_service_account_info(
     scopes=SCOPES
 )
 drive = build("drive", "v3", credentials=creds)
+
+
+def ensure_collection_exists(collection_id):
+    """Create Rekognition collection if it doesn't exist."""
+    try:
+        rekognition.describe_collection(CollectionId=collection_id)
+        print(f"[INFO] Collection {collection_id} already exists")
+    except rekognition.exceptions.ResourceNotFoundException:
+        print(f"[INFO] Creating collection {collection_id}")
+        try:
+            rekognition.create_collection(CollectionId=collection_id)
+            print(f"[SUCCESS] Created collection {collection_id}")
+        except rekognition.exceptions.ResourceAlreadyExistsException:
+            print(f"[INFO] Collection {collection_id} already exists (race condition)")
+
 
 def handler(event, context):
     print(json.dumps(event))
@@ -103,6 +119,8 @@ def handler(event, context):
                     raise e
     elif processing_mode == "face":
         print(f"[INFO] Face mode - skipping CSV processing")
+        collection_id = f"event-{event_id}"
+        ensure_collection_exists(collection_id)
     else:
         print(f"[WARN] Unknown processing mode: {processing_mode}, defaulting to bib")
 

@@ -24,21 +24,6 @@ creds = service_account.Credentials.from_service_account_info(sa_info, scopes=SC
 drive = build('drive', 'v3', credentials=creds)
 
 
-def ensure_collection_exists(collection_id):
-    """Create Rekognition collection if it doesn't exist."""
-    try:
-        rekognition.describe_collection(CollectionId=collection_id)
-        print(f"[INFO] Collection {collection_id} already exists")
-    except rekognition.exceptions.ResourceNotFoundException:
-        print(f"[INFO] Creating collection {collection_id}")
-        try:
-            rekognition.create_collection(CollectionId=collection_id)
-            print(f"[SUCCESS] Created collection {collection_id}")
-        except rekognition.exceptions.ResourceAlreadyExistsException:
-            # Another concurrent invocation created the collection first — this is fine
-            print(f"[INFO] Collection {collection_id} was created by a concurrent invocation")
-
-
 def download_image_from_drive(file_id):
     """Download image from Google Drive."""
     print(f"[INFO] Downloading file from Drive. ID: {file_id}")
@@ -124,9 +109,6 @@ def handler(event, context):
     collection_id = f"event-{event_id}"
     
     try:
-        # Ensure collection exists
-        ensure_collection_exists(collection_id)
-        
         # Download image from Google Drive
         filename, image_data, mime_type = download_image_from_drive(file_id)
         
