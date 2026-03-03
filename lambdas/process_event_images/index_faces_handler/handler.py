@@ -35,20 +35,24 @@ def download_image_from_drive(file_id):
     return filename, data, mime_type
 
 
-def index_faces_in_image(image_bytes, collection_id, event_id, filename):
-    """Index all faces in an image to Rekognition collection."""
+def index_faces_in_image(bucket, s3_key, collection_id, filename):
+    """Index all faces in an image to Rekognition collection using an S3 reference.
+
+    Passing image bytes directly is limited to 5 MB by the Rekognition API.
+    Using an S3 reference raises that limit to 15 MB and avoids the constraint.
+    """
     try:
         response = rekognition.index_faces(
             CollectionId=collection_id,
-            Image={'Bytes': image_bytes},
+            Image={'S3Object': {'Bucket': bucket, 'Name': s3_key}},
             MaxFaces=10,
             QualityFilter='NONE',
             DetectionAttributes=['ALL']
         )
-        
+
         face_records = response.get('FaceRecords', [])
         print(f"[INFO] Indexed {len(face_records)} faces from {filename}")
-        
+
         return face_records
     except Exception as e:
         print(f"[ERROR] Failed to index faces in {filename}: {e}")
@@ -111,29 +115,41 @@ def handler(event, context):
     try:
         # Download image from Google Drive
         filename, image_data, mime_type = download_image_from_drive(file_id)
-        
-        # Index faces in the image
-        face_records = index_faces_in_image(image_data, collection_id, event_id, filename)
-        
+
+        # Upload to S3 first so Rekognition can reference it via S3 (avoids the
+        # 5 MB byte-payload limit; S3 reference supports images up to 15 MB).
+        temp_s3_key = f"{event_id}/TempImages/{filename}"
+        upload_to_s3(temp_s3_key, image_data)
+
+        # Index faces using the S3 reference
+        face_records = index_faces_in_image(RAW_BUCKET, temp_s3_key, collection_id, filename)
+
         if face_records:
-            # Upload to S3 in IndexedImages folder
-            s3_key = f"{event_id}/IndexedImages/{filename}"
-            upload_to_s3(s3_key, image_data)
-            
-            # Store face metadata in DynamoDB
-            store_face_metadata(face_records, event_id, filename, s3_key)
-            
+            final_s3_key = f"{event_id}/IndexedImages/{filename}"
+            s3.copy_object(
+                Bucket=RAW_BUCKET,
+                CopySource={'Bucket': RAW_BUCKET, 'Key': temp_s3_key},
+                Key=final_s3_key
+            )
+            store_face_metadata(face_records, event_id, filename, final_s3_key)
             print(f"[SUCCESS] Indexed {len(face_records)} faces from {filename}")
         else:
-            # No faces found - upload to UnProcessedImages
-            s3_key = f"{event_id}/UnProcessedImages/{filename}"
-            upload_to_s3(s3_key, image_data)
+            final_s3_key = f"{event_id}/UnProcessedImages/{filename}"
+            s3.copy_object(
+                Bucket=RAW_BUCKET,
+                CopySource={'Bucket': RAW_BUCKET, 'Key': temp_s3_key},
+                Key=final_s3_key
+            )
             print(f"[WARN] No faces detected in {filename}")
-        
+
+        # Remove the temporary object now that it has been copied to its final location
+        s3.delete_object(Bucket=RAW_BUCKET, Key=temp_s3_key)
+
         return {
             'eventId': str(event_id),
             'filename': filename,
             'facesIndexed': len(face_records),
+            's3Key': final_s3_key,
             'ok': True
         }
         
