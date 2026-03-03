@@ -42,8 +42,8 @@ def index_faces_in_image(image_bytes, collection_id, event_id, filename):
             CollectionId=collection_id,
             Image={'Bytes': image_bytes},
             MaxFaces=10,
-            QualityFilter='AUTO',
-            DetectionAttributes=['DEFAULT']
+            QualityFilter='NONE',
+            DetectionAttributes=['ALL']
         )
         
         face_records = response.get('FaceRecords', [])
