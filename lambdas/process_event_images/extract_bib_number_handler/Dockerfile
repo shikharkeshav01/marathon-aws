@@ -14,12 +14,15 @@ ENV HOME=/tmp \
     TMPDIR=/tmp \
     XDG_CACHE_HOME=/tmp/.cache \
     XDG_CONFIG_HOME=/tmp/.config \
-    TORCH_HOME=/tmp/torch \
-    EASYOCR_MODULE_PATH=/tmp/easyocr \
-    ULTRALYTICS_CACHE_DIR=/tmp/ultralytics
+    TORCH_HOME=/var/models/torch \
+    EASYOCR_MODULE_PATH=/var/models/easyocr \
+    ULTRALYTICS_CACHE_DIR=/var/models/ultralytics \
+    YOLO_TELEMETRY=False
 
-# Pre-create common writable directories
-RUN mkdir -p /tmp/.cache /tmp/.config /tmp/torch /tmp/easyocr /tmp/ultralytics
+# /tmp dirs for generic home writes (writable at runtime)
+# /var/models dirs for model weights (baked into image, readable at runtime)
+RUN mkdir -p /tmp/.cache /tmp/.config \
+             /var/models/torch /var/models/easyocr /var/models/ultralytics
 
 COPY requirements.txt .
 

@@ -3,7 +3,7 @@ Preload models during Docker build to avoid cold start delays.
 
 Environment variables to control which models to preload:
 - PRELOAD_DETECTION_MODELS: Comma-separated list (default: "yolov10n")
-- PRELOAD_OCR_MODELS: Comma-separated list (default: "easyocr,paddleocr")
+- PRELOAD_OCR_MODELS: Comma-separated list (default: "easyocr")
 
 Set to empty string to skip preloading that category.
 """
@@ -12,7 +12,7 @@ import time
 
 # Which models to preload (can be configured via env vars during build)
 DETECTION_MODELS = os.environ.get("PRELOAD_DETECTION_MODELS", "yolov10n").split(",")
-OCR_MODELS = os.environ.get("PRELOAD_OCR_MODELS", "easyocr,paddleocr").split(",")
+OCR_MODELS = os.environ.get("PRELOAD_OCR_MODELS", "easyocr").split(",")
 
 # Filter empty strings
 DETECTION_MODELS = [m.strip() for m in DETECTION_MODELS if m.strip()]
@@ -57,24 +57,5 @@ for ocr_name in OCR_MODELS:
                     print(f"[PRELOAD] Error loading EasyOCR reader after {max_retries} attempts: {e}")
                     raise
 
-    elif ocr_name == "paddleocr":
-        print("[PRELOAD] Loading PaddleOCR (English)...")
-        max_retries = 3
-        retry_delay = 5
-
-        for attempt in range(max_retries):
-            try:
-                from paddleocr import PaddleOCR
-                ocr = PaddleOCR(use_textline_orientation=True, lang="en", device="cpu")
-                print("[PRELOAD] PaddleOCR loaded successfully")
-                break
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    print(f"[PRELOAD] Error loading PaddleOCR (attempt {attempt + 1}/{max_retries}): {e}")
-                    print(f"[PRELOAD] Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                else:
-                    print(f"[PRELOAD] Error loading PaddleOCR after {max_retries} attempts: {e}")
-                    raise
 
 print("[PRELOAD] All models preloaded successfully!")

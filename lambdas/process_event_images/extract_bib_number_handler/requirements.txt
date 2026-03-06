@@ -1,8 +1,6 @@
 opencv-python-headless
 numpy
 easyocr
-paddleocr
-paddlepaddle
 ultralytics
 google-api-python-client
 

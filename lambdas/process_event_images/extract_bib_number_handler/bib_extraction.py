@@ -1,3 +1,4 @@
+import gc
 import os
 import re
 from enum import Enum
@@ -6,6 +7,11 @@ from typing import List, Tuple
 import cv2
 import numpy as np
 import torch
+
+# Maximum pixel dimension before YOLO inference.
+# YOLO internally uses 640×640; full-res 20-24 MP camera photos (~72 MB as
+# BGR arrays) give no accuracy benefit and spike memory significantly.
+_MAX_INFER_DIM = 1920
 
 
 class DetectionModel(Enum):
@@ -161,8 +167,18 @@ def detect_and_extract_bibs(
     # Decode image
     np_buffer = np.frombuffer(image_bytes, dtype=np.uint8)
     img = cv2.imdecode(np_buffer, cv2.IMREAD_COLOR)
+    del np_buffer  # raw bytes no longer needed after decode
     if img is None:
         raise ValueError("Failed to decode image bytes.")
+
+    # Downscale large images before inference.
+    # Pro-camera marathon photos can be 20-24 MP (~72 MB as a BGR array).
+    # YOLO uses 640×640 internally, so full resolution wastes memory.
+    h, w = img.shape[:2]
+    if max(h, w) > _MAX_INFER_DIM:
+        scale = _MAX_INFER_DIM / max(h, w)
+        img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+        print(f"[IMG] Downscaled from ({w}×{h}) to ({img.shape[1]}×{img.shape[0]})")
 
     print(f"[IMG] {image_name} (detector={detection_model.value}, ocr={ocr_model.value})")
 
@@ -223,6 +239,7 @@ def detect_and_extract_bibs(
             # Preprocess and run OCR
             prep = preprocess_for_ocr(crop)
             ocr_results = _run_ocr(ocr, ocr_model, prep, original_color_image=crop)
+            del crop, prep  # free crop memory before next iteration
 
             # Debug: show all OCR results before filtering
             if ocr_results:
@@ -251,6 +268,12 @@ def detect_and_extract_bibs(
 
     sorted_bibs = sorted(bibs)
     print(f"[SUMMARY] {image_name}: {sorted_bibs}")
+
+    # Explicitly release the full-resolution image array and run GC to reduce
+    # peak memory before returning — important when many map-state invocations
+    # run concurrently in the same warm container.
+    del img
+    gc.collect()
 
     return sorted_bibs
 
