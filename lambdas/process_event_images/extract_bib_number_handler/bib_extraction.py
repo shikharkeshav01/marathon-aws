@@ -132,8 +132,8 @@ def detect_and_extract_bibs(
     image_name: str = "input.jpg",
     detection_model: DetectionModel = DetectionModel.YOLOV10N,
     ocr_model: OCRModel = OCRModel.EASYOCR,
-    conf_threshold: float = 0.5,
-    ocr_conf_threshold: float = 0.3,
+    conf_threshold: float = 0.6,
+    ocr_conf_threshold: float = 0.5,
     min_len: int = 2,
     max_len: int = 6
 ) -> List[str]:
