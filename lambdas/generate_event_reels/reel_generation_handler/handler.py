@@ -159,6 +159,8 @@ def get_images_from_db(event_id, bib_id, email, max_image_count):
     seen = set()
     filenames = []
     for item in response.get('Items', []):
+        if len(filenames) >= max_image_count:
+            break
         name = item['Filename']
         if name not in seen:
             seen.add(name)
