@@ -150,45 +150,53 @@ def is_landscape(image_path: str) -> bool:
 
 
 def get_images_from_db(event_id, bib_id, email, max_image_count):
-    table = ddb.Table(os.environ["EVENT_IMAGES_TABLE"])
-    response = table.query(
-        IndexName='EventId-index',
-        KeyConditionExpression=Key('EventId').eq(event_id),
-        FilterExpression=Attr('BibId').eq(str(bib_id))
-    )
     seen = set()
     filenames = []
-    for item in response.get('Items', []):
-        if len(filenames) >= max_image_count:
-            break
-        name = item['Filename']
-        if name not in seen:
-            seen.add(name)
-            filenames.append(name)
 
-    print(f"[get_images_from_db] EventImages query for eventId={event_id} bibId={bib_id}: {len(filenames)} unique filenames: {filenames}")
-
-    remaining = max_image_count - len(filenames)
-    if remaining > 0 and email:
+    if email:
         user_image_table = ddb.Table(os.environ["USER_IMAGE_MATCHES_TABLE"])
         user_response = user_image_table.query(
             KeyConditionExpression=Key('Email').eq(email),
             FilterExpression=Attr('EventId').eq(event_id)
         )
-        extra_keys = []
+        user_keys = []
         for item in user_response.get('Items', []):
-            if remaining <= 0:
+            if len(filenames) >= max_image_count:
                 break
             key = item['ImageS3Key']
             if key not in seen:
                 seen.add(key)
                 filenames.append({"s3Key": key})
-                extra_keys.append(key)
-                remaining -= 1
+                user_keys.append(key)
 
-        print(f"[get_images_from_db] UserImageMatches query for email={email} eventId={event_id}: {len(extra_keys)} extra keys: {extra_keys}")
+        print(f"[get_images_from_db] UserImageMatches query for email={email} eventId={event_id}: {len(user_keys)} prioritized keys: {user_keys}")
     else:
-        print(f"[get_images_from_db] Skipping UserImageMatches (remaining={remaining}, email={email!r})")
+        print(f"[get_images_from_db] Skipping UserImageMatches (email={email!r})")
+
+    remaining = max_image_count - len(filenames)
+
+    if remaining > 0:
+        table = ddb.Table(os.environ["EVENT_IMAGES_TABLE"])
+        response = table.query(
+            IndexName='EventId-index',
+            KeyConditionExpression=Key('EventId').eq(event_id),
+            FilterExpression=Attr('BibId').eq(str(bib_id))
+        )
+
+        event_filenames = []
+        for item in response.get('Items', []):
+            if len(filenames) >= max_image_count:
+                break
+            name = item['Filename']
+            s3_key = f"{event_id}/ProcessedImages/{name}"
+            if s3_key not in seen:
+                seen.add(s3_key)
+                filenames.append(name)
+                event_filenames.append(name)
+
+        print(f"[get_images_from_db] EventImages query for eventId={event_id} bibId={bib_id}: {len(event_filenames)} fallback filenames: {event_filenames}")
+    else:
+        print(f"[get_images_from_db] Skipping EventImages fallback (remaining={remaining})")
 
     print(f"[get_images_from_db] Total entries returned: {len(filenames)}")
     return filenames

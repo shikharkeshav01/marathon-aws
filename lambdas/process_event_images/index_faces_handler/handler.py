@@ -45,7 +45,7 @@ def index_faces_in_image(bucket, s3_key, collection_id, filename):
         response = rekognition.index_faces(
             CollectionId=collection_id,
             Image={'S3Object': {'Bucket': bucket, 'Name': s3_key}},
-            MaxFaces=10,
+            MaxFaces=20,
             QualityFilter='NONE',
             DetectionAttributes=['ALL']
         )
