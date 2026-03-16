@@ -31,6 +31,34 @@ creds = service_account.Credentials.from_service_account_info(
 drive = build("drive", "v3", credentials=creds)
 
 
+def _generate_bib_lookup_candidates(bib):
+    """
+    Generate BibId lookup candidates while preserving valid letter prefixes.
+
+    For numeric bibs, allow exact / trim-last / trim-first.
+    For prefixed bibs like W2334, allow exact / trim-last / trim-first-digit-after-prefix.
+    """
+    normalized_bib = str(bib).strip().upper()
+    if not normalized_bib:
+        return []
+
+    candidates = []
+
+    def add(candidate):
+        if candidate and len(candidate) >= 2 and candidate not in candidates:
+            candidates.append(candidate)
+
+    add(normalized_bib)
+    add(normalized_bib[:-1])
+
+    if normalized_bib.isdigit():
+        add(normalized_bib[1:])
+    elif normalized_bib[:1].isalpha() and normalized_bib[1:].isdigit():
+        add(normalized_bib[0] + normalized_bib[2:])
+
+    return candidates
+
+
 def extract_bib_numbers(photo, event_id, filename):
     try:
         bib_numbers = detect_and_extract_bibs(
@@ -42,14 +70,7 @@ def extract_bib_numbers(photo, event_id, filename):
         participants_table = ddb.Table(os.environ["EVENT_PARTICIPANTS_TABLE"])
         validated_bibs = []
         for bib in bib_numbers:
-            # Try exact match first, then variations (OCR sometimes adds extra digits)
-            candidates = [
-                bib,           # exact match
-                bib[:-1],      # trim last digit (e.g., 211568 -> 21156)
-                bib[1:],       # trim first digit
-            ]
-            # Filter out empty or too-short candidates
-            candidates = [c for c in candidates if len(c) >= 2]
+            candidates = _generate_bib_lookup_candidates(bib)
 
             matched_bib = None
             for candidate in candidates:

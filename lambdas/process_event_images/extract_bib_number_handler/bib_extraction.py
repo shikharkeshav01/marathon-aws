@@ -123,8 +123,38 @@ def _run_ocr(ocr_model, model_type: OCRModel, image, original_color_image=None) 
 
 
 def preprocess_for_ocr(image_bgr):
-    """Convert image to grayscale for OCR processing."""
-    return cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    """
+    Preprocess image for OCR using binary thresholding.
+
+    Binary thresholding (Otsu's method) provides better contrast and
+    higher OCR confidence compared to simple grayscale conversion.
+    """
+    # Convert to grayscale first
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+
+    # Apply Otsu's binary thresholding for better OCR accuracy
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    return binary
+
+
+def _normalize_bib_candidate(raw_text: str, min_len: int, max_len: int):
+    """
+    Normalize OCR text into a supported bib format.
+
+    Supported formats:
+    - digits only, e.g. 45218
+    - one leading letter followed by digits, e.g. W2334
+    """
+    normalized = re.sub(r"[^A-Za-z0-9]", "", (raw_text or "").strip()).upper()
+    if not normalized:
+        return None
+
+    pattern = rf"(?:[0-9]{{{min_len},{max_len}}}|[A-Z][0-9]{{{min_len},{max_len}}})"
+    if not re.fullmatch(pattern, normalized):
+        return None
+
+    return normalized
 
 
 def detect_and_extract_bibs(
@@ -135,7 +165,8 @@ def detect_and_extract_bibs(
     conf_threshold: float = 0.6,
     ocr_conf_threshold: float = 0.8,
     min_len: int = 2,
-    max_len: int = 6
+    max_len: int = 6,
+    debug_output_dir: str = None
 ) -> List[str]:
     """
     Detect people in image and extract bib numbers using configurable models.
@@ -149,6 +180,7 @@ def detect_and_extract_bibs(
         ocr_conf_threshold: OCR confidence threshold [0, 1]
         min_len: Minimum bib number length
         max_len: Maximum bib number length
+        debug_output_dir: Optional directory to save debug crops
 
     Returns:
         Sorted list of detected bib numbers
@@ -178,7 +210,7 @@ def detect_and_extract_bibs(
         confs = boxes.conf.cpu().numpy() if hasattr(boxes.conf, "cpu") else boxes.conf
         print(f"[DETECT] persons={len(xyxy)} (conf>={conf_threshold})")
 
-        for (x1, y1, x2, y2), det_conf in zip(xyxy, confs):
+        for person_idx, ((x1, y1, x2, y2), det_conf) in enumerate(zip(xyxy, confs)):
             x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
             x1 = max(0, x1)
             y1 = max(0, y1)
@@ -192,60 +224,117 @@ def detect_and_extract_bibs(
             person_height = y2 - y1
             person_width = x2 - x1
 
-            # Vertical: start at 15% from top (below head), end at 95% (includes waist/belt bibs fully)
-            torso_y1 = y1 + int(person_height * 0.15)
-            torso_y2 = y1 + int(person_height * 0.95)
+            # Try multiple crop strategies to maximize bib capture
+            # Strategy 1: Chest area (where most bibs are)
+            # Strategy 2: Waist/belt area (for waist bibs)
+            # We'll run OCR on both and combine results
 
-            # Horizontal: center 70% (exclude arms on sides)
-            margin_x = int(person_width * 0.15)
-            torso_x1 = x1 + margin_x
-            torso_x2 = x2 - margin_x
+            crop_regions = []
+
+            # Region 1: Chest area (optimized for chest bibs)
+            # Vertical: 10% to 60% of person height (upper torso)
+            # Horizontal: center 80% (wider to avoid cutting off bib edges)
+            chest_y1 = y1 + int(person_height * 0.10)
+            chest_y2 = y1 + int(person_height * 0.60)
+            margin_x_chest = int(person_width * 0.10)
+            chest_x1 = x1 + margin_x_chest
+            chest_x2 = x2 - margin_x_chest
 
             # Ensure valid bounds
-            torso_x1 = max(0, torso_x1)
-            torso_y1 = max(0, torso_y1)
-            torso_x2 = min(img.shape[1], torso_x2)
-            torso_y2 = min(img.shape[0], torso_y2)
+            chest_x1 = max(0, chest_x1)
+            chest_y1 = max(0, chest_y1)
+            chest_x2 = min(img.shape[1], chest_x2)
+            chest_y2 = min(img.shape[0], chest_y2)
 
-            if torso_x2 <= torso_x1 or torso_y2 <= torso_y1:
+            if chest_x2 > chest_x1 and chest_y2 > chest_y1:
+                crop_regions.append(("chest", chest_x1, chest_y1, chest_x2, chest_y2))
+
+            # Region 2: Waist/belt area (for waist bibs)
+            # Vertical: 50% to 95% of person height (extended to capture lower bibs)
+            # Horizontal: center 80%
+            waist_y1 = y1 + int(person_height * 0.50)
+            waist_y2 = y1 + int(person_height * 0.95)
+            margin_x_waist = int(person_width * 0.10)
+            waist_x1 = x1 + margin_x_waist
+            waist_x2 = x2 - margin_x_waist
+
+            # Ensure valid bounds
+            waist_x1 = max(0, waist_x1)
+            waist_y1 = max(0, waist_y1)
+            waist_x2 = min(img.shape[1], waist_x2)
+            waist_y2 = min(img.shape[0], waist_y2)
+
+            if waist_x2 > waist_x1 and waist_y2 > waist_y1:
+                crop_regions.append(("waist", waist_x1, waist_y1, waist_x2, waist_y2))
+
+            if not crop_regions:
                 continue
 
-            crop = img[torso_y1:torso_y2, torso_x1:torso_x2]
-            if crop.size == 0:
-                continue
-            print(f"  [BOX] person=({x1},{y1},{x2},{y2}) torso=({torso_x1},{torso_y1},{torso_x2},{torso_y2}) conf={float(det_conf):.2f}")
+            print(f"  [BOX] person={person_idx} bbox=({x1},{y1},{x2},{y2}) conf={float(det_conf):.2f}")
 
-            # # Debug: save crop to verify what OCR sees
-            # debug_path = f"/tmp/debug_crop_{image_name}"
-            # cv2.imwrite(debug_path, crop)
-            # print(f"  [DEBUG] Saved crop to {debug_path}")
+            # Process each crop region
+            all_ocr_results = []
+            for region_name, rx1, ry1, rx2, ry2 in crop_regions:
+                crop = img[ry1:ry2, rx1:rx2]
+                if crop.size == 0:
+                    continue
 
-            # Preprocess and run OCR
-            prep = preprocess_for_ocr(crop)
-            ocr_results = _run_ocr(ocr, ocr_model, prep, original_color_image=crop)
+                print(f"    [CROP] {region_name}=({rx1},{ry1},{rx2},{ry2})")
 
-            # Debug: show all OCR results before filtering
-            if ocr_results:
-                print(f"    [OCR RAW] {[(text, f'{conf:.2f}') for text, conf in ocr_results]}")
+                # Debug: save crop to verify what OCR sees
+                if debug_output_dir:
+                    import os
+                    os.makedirs(debug_output_dir, exist_ok=True)
+                    crop_path = os.path.join(debug_output_dir, f"person_{person_idx}_{region_name}_crop.jpg")
+                    cv2.imwrite(crop_path, crop)
+                    print(f"    [DEBUG] Saved {region_name} crop to {crop_path}")
 
-            for text, conf in ocr_results:
+                # Try multiple preprocessing techniques and combine results
+                # This improves robustness across different image conditions
+                preprocessing_methods = [
+                    ("grayscale", lambda img: cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)),
+                    ("binary", preprocess_for_ocr),  # Binary threshold (Otsu)
+                ]
+
+                method_results = {}
+                for method_name, preprocess_fn in preprocessing_methods:
+                    prep = preprocess_fn(crop)
+
+                    # Debug: save preprocessed image
+                    if debug_output_dir:
+                        import os
+                        os.makedirs(debug_output_dir, exist_ok=True)
+                        prep_path = os.path.join(debug_output_dir, f"person_{person_idx}_{region_name}_{method_name}.jpg")
+                        cv2.imwrite(prep_path, prep)
+
+                    results = _run_ocr(ocr, ocr_model, prep, original_color_image=crop)
+                    method_results[method_name] = results
+
+                # Combine results from all preprocessing methods, keeping highest confidence for each text
+                combined = {}
+                for method_name, results in method_results.items():
+                    for text, conf in results:
+                        if text not in combined or conf > combined[text]:
+                            combined[text] = conf
+
+                ocr_results = [(text, conf) for text, conf in combined.items()]
+
+                # Debug: show all OCR results before filtering
+                if ocr_results:
+                    print(f"      [OCR RAW] {[(text, f'{conf:.2f}') for text, conf in ocr_results]}")
+
+                all_ocr_results.extend(ocr_results)
+
+            # Process all OCR results from all crop regions
+            for text, conf in all_ocr_results:
                 raw_text = (text or "").strip()
-
-                # Skip if the original text has too many non-digit characters
-                # Real bib numbers are mostly/purely numeric
-                digit_count = sum(c.isdigit() for c in raw_text)
-                non_digit_count = len(raw_text) - digit_count
-                if non_digit_count > digit_count:
-                    # More letters than digits - likely not a bib (e.g., "21.1 KM HM")
-                    continue
-
-                text_clean = re.sub(r"[^0-9]", "", raw_text)
-                if not text_clean:
-                    continue
-                if not (min_len <= len(text_clean) <= max_len):
-                    continue
                 if conf < ocr_conf_threshold:
                     continue
+
+                text_clean = _normalize_bib_candidate(raw_text, min_len, max_len)
+                if not text_clean:
+                    continue
+
                 bibs.add(text_clean)
                 print(f"    [BIB] {text_clean} (OCR conf={conf:.2f}, raw='{raw_text}')")
 
