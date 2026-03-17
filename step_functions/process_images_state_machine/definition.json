@@ -76,7 +76,7 @@
         "requestId.$": "$.requestId",
         "fileId.$": "$$.Map.Item.Value.fileId"
       },
-      "MaxConcurrency": 50,
+      "MaxConcurrency": 4,
       "ToleratedFailurePercentage": 5,
       "ResultPath": null,
       "Label": "ProcessImagesFace",
