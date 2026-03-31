@@ -79,28 +79,41 @@ def store_face_metadata(face_records, event_id, filename, s3_key):
         print(f"[INFO] Stored face {face_id} in IndexedFaces table")
 
 
-def upload_to_s3(s3_key, data):
+def upload_to_s3(s3_key, data, content_type='image/jpeg'):
     """Upload image to S3."""
-    print(f"[INFO] Uploading to S3: {s3_key}")
+    print(f"[INFO] Uploading to S3: {s3_key} with ContentType: {content_type}")
     s3.put_object(
         Bucket=RAW_BUCKET,
         Key=s3_key,
         Body=data,
-        ContentType='image/jpeg'
+        ContentType=content_type
     )
 
 
 def is_image_already_processed(event_id, filename):
-    """Check if image has already been successfully indexed by looking for it in S3."""
+    """Check if image has already been processed by looking for it in S3.
+
+    Checks both IndexedImages (faces found) and UnProcessedImages (no faces).
+    This ensures idempotency even if the Lambda is retried.
+    """
+    # Check if image was successfully indexed (faces found)
     indexed_key = f"{event_id}/IndexedImages/{filename}"
-    
     try:
         s3.head_object(Bucket=RAW_BUCKET, Key=indexed_key)
-        print(f"[INFO] Image already indexed, skipping: {filename}")
+        print(f"[INFO] Image already indexed in IndexedImages, skipping: {filename}")
         return True, indexed_key
     except s3.exceptions.ClientError:
         pass
-    
+
+    # Check if image was previously processed but had no faces
+    unprocessed_key = f"{event_id}/UnProcessedImages/{filename}"
+    try:
+        s3.head_object(Bucket=RAW_BUCKET, Key=unprocessed_key)
+        print(f"[INFO] Image already processed in UnProcessedImages, skipping: {filename}")
+        return True, unprocessed_key
+    except s3.exceptions.ClientError:
+        pass
+
     return False, None
 
 
@@ -129,7 +142,7 @@ def handler(event, context):
     try:
         # Download image from Google Drive to get filename
         filename, image_data, mime_type = download_image_from_drive(file_id)
-        
+
         # Check if image has already been processed (idempotency check)
         already_processed, existing_s3_key = is_image_already_processed(event_id, filename)
         if already_processed:
@@ -146,20 +159,27 @@ def handler(event, context):
         # Upload to S3 first so Rekognition can reference it via S3 (avoids the
         # 5 MB byte-payload limit; S3 reference supports images up to 15 MB).
         temp_s3_key = f"{event_id}/TempImages/{filename}"
-        upload_to_s3(temp_s3_key, image_data)
+        upload_to_s3(temp_s3_key, image_data, mime_type)
 
         # Index faces using the S3 reference
         face_records = index_faces_in_image(RAW_BUCKET, temp_s3_key, collection_id, filename)
 
         if face_records:
             final_s3_key = f"{event_id}/IndexedImages/{filename}"
-            s3.copy_object(
-                Bucket=RAW_BUCKET,
-                CopySource={'Bucket': RAW_BUCKET, 'Key': temp_s3_key},
-                Key=final_s3_key
-            )
+            try:
+                s3.copy_object(
+                    Bucket=RAW_BUCKET,
+                    CopySource={'Bucket': RAW_BUCKET, 'Key': temp_s3_key},
+                    Key=final_s3_key
+                )
+            except s3.exceptions.ClientError as e:
+                if e.response['Error']['Code'] == 'NoSuchKey':
+                    print(f"[ERROR] Temp file not found: {temp_s3_key}. This may indicate a retry of an already-completed execution.")
+                    raise ValueError(f"Temp file {temp_s3_key} does not exist. Image may have already been processed.")
+                raise
+
             store_face_metadata(face_records, event_id, filename, final_s3_key)
-            
+
             # Remove from UnProcessedImages if it was previously there
             unprocessed_key = f"{event_id}/UnProcessedImages/{filename}"
             try:
@@ -167,19 +187,29 @@ def handler(event, context):
                 print(f"[INFO] Removed {filename} from UnProcessedImages folder")
             except Exception as e:
                 print(f"[WARN] Could not remove from UnProcessedImages: {e}")
-            
+
             print(f"[SUCCESS] Indexed {len(face_records)} faces from {filename}")
         else:
             final_s3_key = f"{event_id}/UnProcessedImages/{filename}"
-            s3.copy_object(
-                Bucket=RAW_BUCKET,
-                CopySource={'Bucket': RAW_BUCKET, 'Key': temp_s3_key},
-                Key=final_s3_key
-            )
+            try:
+                s3.copy_object(
+                    Bucket=RAW_BUCKET,
+                    CopySource={'Bucket': RAW_BUCKET, 'Key': temp_s3_key},
+                    Key=final_s3_key
+                )
+            except s3.exceptions.ClientError as e:
+                if e.response['Error']['Code'] == 'NoSuchKey':
+                    print(f"[ERROR] Temp file not found: {temp_s3_key}. This may indicate a retry of an already-completed execution.")
+                    raise ValueError(f"Temp file {temp_s3_key} does not exist. Image may have already been processed.")
+                raise
             print(f"[WARN] No faces detected in {filename}")
 
         # Remove the temporary object now that it has been copied to its final location
-        s3.delete_object(Bucket=RAW_BUCKET, Key=temp_s3_key)
+        try:
+            s3.delete_object(Bucket=RAW_BUCKET, Key=temp_s3_key)
+            print(f"[INFO] Deleted temp file: {temp_s3_key}")
+        except Exception as e:
+            print(f"[WARN] Could not delete temp file {temp_s3_key}: {e}")
 
         return {
             'eventId': str(event_id),
