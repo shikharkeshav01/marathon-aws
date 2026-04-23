@@ -158,7 +158,7 @@ def handler(event, context):
 
         # Upload to S3 first so Rekognition can reference it via S3 (avoids the
         # 5 MB byte-payload limit; S3 reference supports images up to 15 MB).
-        temp_s3_key = f"{event_id}/TempImages/{filename}"
+        temp_s3_key = f"{event_id}/TempImages/{file_id}/{filename}"
         upload_to_s3(temp_s3_key, image_data, mime_type)
 
         # Index faces using the S3 reference
