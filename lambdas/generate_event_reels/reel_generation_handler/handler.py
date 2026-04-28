@@ -1,7 +1,7 @@
 # processor.py
 import os, json, boto3, traceback, mimetypes, re, copy
 from datetime import datetime
-from PIL import Image
+from PIL import Image, ImageOps
 
 from reel_generation import overlay_images_on_video
 from boto3.dynamodb.conditions import Key, Attr
@@ -143,9 +143,17 @@ def generate_reel_local(
 
 
 def is_landscape(image_path: str) -> bool:
-    """Return True if the image is in landscape orientation (width > height)."""
+    """
+    Return True if the image is in landscape orientation (width > height).
+    Respects EXIF orientation to handle images that are rotated.
+    """
     with Image.open(image_path) as img:
-        width, height = img.size
+        # Apply EXIF orientation transformation to get the actual displayed dimensions
+        img_corrected = ImageOps.exif_transpose(img)
+        if img_corrected is None:
+            # No EXIF orientation data, use original
+            img_corrected = img
+        width, height = img_corrected.size
     return width > height
 
 
